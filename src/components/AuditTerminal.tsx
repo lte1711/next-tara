@@ -112,7 +112,13 @@ export function AuditTerminal({ logs, onTraceFilterChange }: AuditTerminalProps)
             {filterTraceId ? '(no logs matching filter)' : '(waiting for events...)'}
           </div>
         ) : (
-          filteredLogs.map((log, idx) => (
+          filteredLogs.map((log, idx) => {
+            const reason =
+              (log.data?.reason as string | undefined) ||
+              (log.data?.rejection_reason as string | undefined) ||
+              ''
+
+            return (
             <div
               key={idx}
               className={`${getBgColor(log.event_type)} p-2 rounded hover:bg-opacity-70 transition-colors cursor-pointer border-l-4 border-gray-700`}
@@ -135,6 +141,12 @@ export function AuditTerminal({ logs, onTraceFilterChange }: AuditTerminalProps)
                   [{log.event_type}]
                 </span>
 
+                {reason && (
+                  <span className="text-red-300 font-semibold shrink-0 whitespace-nowrap">
+                    reason={reason}
+                  </span>
+                )}
+
                 {/* Trace ID (clickable) */}
                 <span
                   className={`text-blue-300 hover:text-blue-100 underline cursor-pointer whitespace-nowrap`}
@@ -150,7 +162,7 @@ export function AuditTerminal({ logs, onTraceFilterChange }: AuditTerminalProps)
                 </span>
               </div>
             </div>
-          ))
+          )})
         )}
       </div>
 
