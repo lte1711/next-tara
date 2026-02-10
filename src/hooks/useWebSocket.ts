@@ -14,6 +14,10 @@ export type WSEventType =
   | 'LEVEL_RESTORED'
   | 'SYSTEM_GUARD'
   | 'AUDIT_LOG'
+  | 'ROUTE_DECIDED'
+  | 'ROUTE_SPLIT'
+  | 'ROUTE_REJECTED_SOFT'
+  | 'ROUTE_REJECTED_HARD'
 
 export interface WSEvent {
   event_type: WSEventType

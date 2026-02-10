@@ -224,6 +224,22 @@ export default function Dashboard() {
           ...prev.slice(0, 999),
         ])
         break
+
+      // PHASE 10: Router WS events
+      case 'ROUTE_DECIDED':
+      case 'ROUTE_SPLIT':
+      case 'ROUTE_REJECTED_SOFT':
+      case 'ROUTE_REJECTED_HARD':
+        setAuditLogs(prev => [
+          {
+            event_type: event.event_type,
+            ts: event.ts,
+            trace_id: event.trace_id || event.data?.trace_id || '',
+            data: event.data,
+          },
+          ...prev.slice(0, 999),
+        ])
+        break
     }
   }, [])
 
