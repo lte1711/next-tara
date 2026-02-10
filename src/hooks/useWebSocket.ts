@@ -47,20 +47,31 @@ export function useWebSocket(options: UseWebSocketOptions) {
   const [backoffMs, setBackoffMs] = useState(1000)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const isMountedRef = useRef(true)
+  const mountedRef = useRef(false)
 
-  // Cleanup on unmount
+  // Mount/unmount tracking - separate from connection logic
   useEffect(() => {
+    mountedRef.current = true
     return () => {
-      isMountedRef.current = false
+      mountedRef.current = false
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current)
       }
+      try { wsRef.current?.close() } catch {}
+      wsRef.current = null
     }
   }, [])
 
   const connect = useCallback(() => {
-    if (!isMountedRef.current) return
+    if (!url) return // url 없을 때만 막음
+    if (!mountedRef.current) return // unmount 이후에만 막음
+
+    // 중복 연결 방지
+    if (wsRef.current && 
+        (wsRef.current.readyState === WebSocket.OPEN || 
+         wsRef.current.readyState === WebSocket.CONNECTING)) {
+      return
+    }
 
     try {
       const ws = new WebSocket(url)
@@ -68,7 +79,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
       ws.onopen = () => {
         console.log('[WS] Connected:', url)
         setIsConnected(true)
-        setBackoffMs(1000) // Reset backoff on successful connect
+        setBackoffMs(1000)
         onConnect?.()
       }
 
@@ -95,9 +106,9 @@ export function useWebSocket(options: UseWebSocketOptions) {
         onDisconnect?.()
 
         // Schedule reconnection with exponential backoff
-        if (isMountedRef.current) {
+        if (mountedRef.current) {
           reconnectTimeoutRef.current = setTimeout(() => {
-            if (isMountedRef.current) {
+            if (mountedRef.current) {
               const nextBackoff = Math.min(backoffMs * backoffMultiplier, maxBackoffMs)
               setBackoffMs(nextBackoff)
               connect()
@@ -113,24 +124,12 @@ export function useWebSocket(options: UseWebSocketOptions) {
     }
   }, [url, onMessage, onError, onConnect, onDisconnect, backoffMs, backoffMultiplier, maxBackoffMs])
 
-  // Initial connection
+  // Initial connection on url change
   useEffect(() => {
+    if (!url) return
     connect()
-
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close()
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current)
-      }
-    }
-  }, [connect])
-
-  return { isConnected, lastMessage }
-      }
-    }
-  }, [url, onMessage, onError, onConnect, onDisconnect])
+    // Cleanup: Do NOT close on effect re-run, only on unmount (handled by mountedRef useEffect)
+  }, [url, connect])
 
   return { isConnected, lastMessage }
 }

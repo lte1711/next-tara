@@ -33,10 +33,12 @@ export default function Dashboard() {
     try {
       setLoadingEngine(true)
       const engineData = await apiClient.getEngineState()
-      setEngine(engineData)
-      console.log('[Dashboard] Engine state loaded:', engineData)
+      if (engineData) {
+        setEngine(engineData)
+        console.log('[Dashboard] Engine state loaded:', engineData)
+      }
     } catch (err) {
-      console.error('[Dashboard] Failed to load engine state:', err)
+      // Fail silent - engine state is optional
     } finally {
       setLoadingEngine(false)
     }
@@ -44,10 +46,12 @@ export default function Dashboard() {
     try {
       setLoadingPositions(true)
       const positionsData = await apiClient.getPositions()
-      setPositions(positionsData.positions)
-      console.log('[Dashboard] Positions loaded:', positionsData)
+      if (positionsData) {
+        setPositions(positionsData.positions)
+        console.log('[Dashboard] Positions loaded:', positionsData)
+      }
     } catch (err) {
-      console.error('[Dashboard] Failed to load positions:', err)
+      // Fail silent - positions are optional
     } finally {
       setLoadingPositions(false)
     }
@@ -58,7 +62,7 @@ export default function Dashboard() {
       setRisks(risksData)
       console.log('[Dashboard] Risk history loaded:', risksData)
     } catch (err) {
-      console.error('[Dashboard] Failed to load risk history:', err)
+      // Fail silent - risk history is optional
     } finally {
       setLoadingRisks(false)
     }
@@ -223,12 +227,15 @@ export default function Dashboard() {
     }
   }, [])
 
-  const wsUrl = (() => {
-    if (typeof window === 'undefined') return ''
+  const [wsUrl, setWsUrl] = useState('')
+
+  useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = process.env.NEXT_PUBLIC_WS_URL || `${window.location.hostname}:8000`
-    return `${protocol}//${host}/api/ws/events`
-  })()
+    const finalUrl = `${protocol}//${host}/api/ws/events`
+    console.log('[Dashboard] Setting wsUrl:', finalUrl)
+    setWsUrl(finalUrl)
+  }, [])
 
   useWebSocket({
     url: wsUrl,

@@ -1,5 +1,17 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
+// Fail Silent helper for optional endpoints
+async function safeGet<T>(url: string): Promise<T | null> {
+  try {
+    const response = await fetch(url)
+    if (response.status === 404) return null
+    if (!response.ok) return null
+    return response.json()
+  } catch {
+    return null
+  }
+}
+
 export interface EngineState {
   kill_switch_on: boolean
   risk_type?: string
@@ -34,23 +46,17 @@ export interface RiskEvent {
 }
 
 export const apiClient = {
-  async getEngineState(): Promise<EngineState> {
-    const response = await fetch(`${API_BASE}/state/engine`)
-    if (!response.ok) throw new Error('Failed to fetch engine state')
-    return response.json()
+  async getEngineState(): Promise<EngineState | null> {
+    return safeGet<EngineState>(`${API_BASE}/state/engine`)
   },
 
-  async getPositions(): Promise<PositionsResponse> {
-    const response = await fetch(`${API_BASE}/state/positions`)
-    if (!response.ok) throw new Error('Failed to fetch positions')
-    return response.json()
+  async getPositions(): Promise<PositionsResponse | null> {
+    return safeGet<PositionsResponse>(`${API_BASE}/state/positions`)
   },
 
   async getRiskHistory(limit: number = 20): Promise<RiskEvent[]> {
-    const response = await fetch(`${API_BASE}/history/risks?limit=${limit}`)
-    if (!response.ok) throw new Error('Failed to fetch risk history')
-    const data = await response.json()
-    return data.events || []
+    const result = await safeGet<{ events: RiskEvent[] }>(`${API_BASE}/history/risks?limit=${limit}`)
+    return result?.events || []
   },
 
   async toggleKillSwitch(isOn: boolean, reason: string): Promise<{ audit_id: string }> {
