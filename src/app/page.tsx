@@ -5,6 +5,9 @@ import { EngineStatusCard } from '@/components/EngineStatusCard'
 import { PositionsCard } from '@/components/PositionsCard'
 import { RecentRisksTable } from '@/components/RecentRisksTable'
 import { KillSwitchControlPanel } from '@/components/KillSwitchControlPanel'
+import { LevelDowngradedAlert, LevelDowngradedEvent } from '@/components/LevelDowngradedAlert'
+import { AuditTerminal, AuditLogEntry } from '@/components/AuditTerminal'
+import { DevLoadTestPanel } from '@/components/DevLoadTestPanel'
 import { useWebSocket, WSEvent } from '@/hooks/useWebSocket'
 import { apiClient, EngineState, Position, RiskEvent } from '@/lib/api'
 
@@ -16,6 +19,14 @@ export default function Dashboard() {
   const [loadingPositions, setLoadingPositions] = useState(true)
   const [loadingRisks, setLoadingRisks] = useState(true)
   const [wsConnected, setWsConnected] = useState(false)
+  const [backoffMs, setBackoffMs] = useState(1000)
+  const [showDevPanel, setShowDevPanel] = useState(process.env.NODE_ENV === 'development')
+
+  // TICKET-WS-004: New state for 6 event types
+  const [levelDowngradedAlert, setLevelDowngradedAlert] = useState<LevelDowngradedEvent | null>(null)
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([])
+  const [filteredAuditLogs, setFilteredAuditLogs] = useState<AuditLogEntry[]>([])
+  const [auditFilterTraceId, setAuditFilterTraceId] = useState<string | null>(null)
 
   // Load initial data
   const loadData = useCallback(async () => {
@@ -58,13 +69,22 @@ export default function Dashboard() {
     loadData()
   }, [loadData])
 
-  // WebSocket message handler
+  // Handle audit log filtering
+  useEffect(() => {
+    if (auditFilterTraceId) {
+      setFilteredAuditLogs(auditLogs.filter(log => log.trace_id === auditFilterTraceId))
+    } else {
+      setFilteredAuditLogs(auditLogs)
+    }
+  }, [auditLogs, auditFilterTraceId])
+
+  // WebSocket message handler (TICKET-WS-004)
   const handleWSMessage = useCallback((event: WSEvent) => {
     console.log('[Dashboard] WS Event:', event.event_type, event)
 
     switch (event.event_type) {
+      // Legacy event types
       case 'engine_state':
-        // Update engine status
         if (event.data) {
           const newEngine: EngineState = {
             kill_switch_on: event.data.kill_switch_on,
@@ -80,7 +100,6 @@ export default function Dashboard() {
         break
 
       case 'position_snapshot':
-        // Update positions
         if (event.data) {
           const newPosition: Position = {
             symbol: event.data.symbol,
@@ -98,7 +117,6 @@ export default function Dashboard() {
         break
 
       case 'risk_event':
-        // Add to risk events (prepend to list)
         if (event.data) {
           const newRisk: RiskEvent = {
             timestamp: event.ts,
@@ -116,6 +134,92 @@ export default function Dashboard() {
       case 'heartbeat':
         // Ignore heartbeats
         break
+
+      // TICKET-WS-003: New 6 event types
+      case 'RISK_TRIGGERED':
+        // Add to audit logs
+        setAuditLogs(prev => [
+          {
+            event_type: 'RISK_TRIGGERED',
+            ts: event.ts,
+            trace_id: event.trace_id || '',
+            data: event.data,
+          },
+          ...prev.slice(0, 999),
+        ])
+        break
+
+      case 'ORDER_REJECTED':
+        setAuditLogs(prev => [
+          {
+            event_type: 'ORDER_REJECTED',
+            ts: event.ts,
+            trace_id: event.trace_id || '',
+            data: event.data,
+          },
+          ...prev.slice(0, 999),
+        ])
+        break
+
+      case 'LEVEL_DOWNGRADED':
+        // Trigger alert
+        const levelDowngradedEvent: LevelDowngradedEvent = {
+          previous_level: event.data.previous_level,
+          new_level: event.data.new_level,
+          reason: event.data.reason,
+          affected_symbols: event.data.affected_symbols,
+          trace_id: event.trace_id || '',
+          ts: event.ts,
+        }
+        setLevelDowngradedAlert(levelDowngradedEvent)
+
+        // Add to audit logs
+        setAuditLogs(prev => [
+          {
+            event_type: 'LEVEL_DOWNGRADED',
+            ts: event.ts,
+            trace_id: event.trace_id || '',
+            data: event.data,
+          },
+          ...prev.slice(0, 999),
+        ])
+        break
+
+      case 'LEVEL_RESTORED':
+        setAuditLogs(prev => [
+          {
+            event_type: 'LEVEL_RESTORED',
+            ts: event.ts,
+            trace_id: event.trace_id || '',
+            data: event.data,
+          },
+          ...prev.slice(0, 999),
+        ])
+        break
+
+      case 'SYSTEM_GUARD':
+        setAuditLogs(prev => [
+          {
+            event_type: 'SYSTEM_GUARD',
+            ts: event.ts,
+            trace_id: event.trace_id || '',
+            data: event.data,
+          },
+          ...prev.slice(0, 999),
+        ])
+        break
+
+      case 'AUDIT_LOG':
+        setAuditLogs(prev => [
+          {
+            event_type: 'AUDIT_LOG',
+            ts: event.ts,
+            trace_id: event.trace_id || '',
+            data: event.data,
+          },
+          ...prev.slice(0, 999),
+        ])
+        break
     }
   }, [])
 
@@ -131,6 +235,7 @@ export default function Dashboard() {
     onMessage: handleWSMessage,
     onConnect: () => {
       setWsConnected(true)
+      setBackoffMs(1000)
       console.log('[Dashboard] WebSocket connected')
     },
     onDisconnect: () => {
@@ -144,9 +249,14 @@ export default function Dashboard() {
 
   const handleKillSwitchToggle = async (success: boolean) => {
     if (success) {
-      // Reload data after successful toggle
       await loadData()
     }
+  }
+
+  const handleEmit10kEvents = async () => {
+    // This will be called by DevLoadTestPanel
+    // The panel handles the actual emission to /api/dev/emit-event
+    console.log('[Dashboard] Dev 10k event emission started')
   }
 
   return (
@@ -161,9 +271,20 @@ export default function Dashboard() {
               {wsConnected ? 'WebSocket Connected' : 'WebSocket Disconnected'}
             </span>
           </div>
-          <span className="text-sm text-gray-500">PHASE 9-1 Dashboard MVP</span>
+          <span className="text-sm text-gray-500">PHASE 9-1 Dashboard MVP + TICKET-WS-004</span>
         </div>
       </div>
+
+      {/* LEVEL_DOWNGRADED Alert Modal */}
+      <LevelDowngradedAlert
+        event={levelDowngradedAlert}
+        onAcknowledge={() => setLevelDowngradedAlert(null)}
+      />
+
+      {/* Dev Load Test Panel (Dev-only) */}
+      {showDevPanel && (
+        <DevLoadTestPanel onEmit10kEvents={handleEmit10kEvents} />
+      )}
 
       {/* Cards Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -184,6 +305,14 @@ export default function Dashboard() {
 
       {/* C. Recent Risks Table */}
       <RecentRisksTable events={risks} loading={loadingRisks} />
+
+      {/* Audit Terminal Stream (TICKET-WS-004) */}
+      <div className="mt-6 h-96">
+        <AuditTerminal
+          logs={filteredAuditLogs}
+          onTraceFilterChange={setAuditFilterTraceId}
+        />
+      </div>
 
       {/* Footer Debug Info */}
       <div className="mt-8 p-4 bg-gray-800 rounded border border-gray-700">
