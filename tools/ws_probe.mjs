@@ -27,6 +27,6 @@ ws.on("close", (code, reason) => {
 });
 
 ws.on("error", (err) => {
-  console.log(`[WS] ERROR ${err?.message ?? err}`);
+  console.log("[WS] ERROR", err);
   process.exit(1);
 });
