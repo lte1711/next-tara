@@ -45,6 +45,43 @@ export interface RiskEvent {
   metadata?: Record<string, any>
 }
 
+export interface TraceSummary {
+  trace_id: string
+  first_ts: number
+  last_ts: number
+  last_event_type: string
+  symbol?: string | null
+  status?: string | null
+}
+
+export interface TraceListResponse {
+  items: TraceSummary[]
+}
+
+export interface TraceTimelineEvent {
+  ts: number
+  event_type: string
+  detail: Record<string, any>
+  missing?: boolean
+}
+
+export interface TraceTimelineResponse {
+  trace_id: string
+  status: string
+  started_at: string
+  events: TraceTimelineEvent[]
+}
+
+export interface DashboardSummary {
+  total_traces: number
+  by_last_event_type: Record<string, number>
+  reject_hard_count: number
+  reject_soft_count: number
+  exec_report_count: number
+  avg_latency_ms: number | null
+  window_sec: number
+}
+
 export const apiClient = {
   async getEngineState(): Promise<EngineState | null> {
     return safeGet<EngineState>(`${API_BASE}/state/engine`)
@@ -67,5 +104,29 @@ export const apiClient = {
     })
     if (!response.ok) throw new Error('Failed to toggle kill-switch')
     return response.json()
+  },
+
+  async getTraceList(params?: {
+    limit?: number
+    event_type?: string
+    since_ms?: number
+  }): Promise<TraceSummary[]> {
+    const query = new URLSearchParams()
+    if (params?.limit) query.set('limit', String(params.limit))
+    if (params?.event_type) query.set('event_type', params.event_type)
+    if (params?.since_ms) query.set('since_ms', String(params.since_ms))
+
+    const result = await safeGet<TraceListResponse>(
+      `${API_BASE}/dashboard/traces?${query.toString()}`
+    )
+    return result?.items || []
+  },
+
+  async getTraceTimeline(traceId: string): Promise<TraceTimelineResponse | null> {
+    return safeGet<TraceTimelineResponse>(`${API_BASE}/dashboard/orders/${traceId}`)
+  },
+
+  async getDashboardSummary(windowSec: number = 300): Promise<DashboardSummary | null> {
+    return safeGet<DashboardSummary>(`${API_BASE}/dashboard/summary?window_sec=${windowSec}`)
   },
 }
