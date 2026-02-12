@@ -1,66 +1,7 @@
 
 "use client";
 
-
-
-interface EvergreenStatus {
-  cumulative_runtime_sec: number;
-  cumulative_runtime_hours: number;
-  progress_percent: number;
-  remaining_hours: number;
-  restart_count: number;
-  total_ticks: number;
-  milestones: {
-    "24h": boolean;
-    "72h": boolean;
-    "168h": boolean;
-  };
-}
-
-interface HealthStatus {
-  service_status: "running" | "stale" | "down" | "error";
-  last_heartbeat_age_sec: number | null;
-  last_heartbeat_ts: number | null;
-
-  // optional
-  grade?: string;
-  mission?: string;
-  next_milestone?: string;
-  next_milestone_eta?: number | null;
-  last_update_ts?: number;
-  [key: string]: any;
-}
-
-type DataMode = "LIVE" | "STALE" | "DOWN" | "DEMO";
-
-interface Event {
-  ts: number;
-  event?: string;
-  severity?: string;
-  msg?: string;
-  cumulative_runtime_sec?: number;
-  restart_count?: number;
-  [key: string]: any;
-}
-
-interface HistoryPoint {
-  ts: number;
-  cumulative_runtime_sec: number;
-  progress_168h_pct: number;
-  restart_count: number;
-}
-
-interface AlertEvent {
-  ts: number;
-  event: string;
-  severity: string;
-  msg: string;
-}
-
-const OPS_TOKEN = process.env.NEXT_PUBLIC_OPS_TOKEN || "dev-ops-token-change-me";
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000") + "/api/ops";
-
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -68,19 +9,146 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CheckCircle2, XCircle, AlertCircle, Clock, TrendingUp } from "lucide-react";
 
+const OPS_TOKEN = process.env.NEXT_PUBLIC_OPS_TOKEN || "dev-ops-token-change-me";
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000") + "/api/ops";
+
+// 다양한 로그 응답 포맷 흡수
+const pickLines = (j: any): string[] => {
+  if (!j) return [];
+  if (Array.isArray(j.lines)) return j.lines.map(String);
+  if (Array.isArray(j.items)) return j.items.map(String);
+  if (Array.isArray(j.stdout)) return j.stdout.map(String);
+  if (Array.isArray(j.stderr)) return j.stderr.map(String);
+  if (typeof j.text === "string") return j.text.split("\n").filter(Boolean);
+  if (typeof j.content === "string") return j.content.split("\n").filter(Boolean);
+  return [];
+};
+
 export default function OpsPage() {
   // 안전 숫자 변환 헬퍼 (SSOT)
-  const asNum = (v: any, fallback = 0) =>
-    typeof v === "number" && Number.isFinite(v) ? v : fallback;
+  const asNum = (v: any, fallback = 0) => typeof v === "number" && Number.isFinite(v) ? v : fallback;
+  const [isClient, setIsClient] = useState(false);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [status, setStatus] = useState<EvergreenStatus | null>(null);
-  const [events] = useState<Event[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
   const [stdoutLines, setStdoutLines] = useState<string[]>([]);
   const [stderrLines, setStderrLines] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+
+  // fetchData: 모든 데이터 fetch (프록시 경로 사용, 10초마다 자동 갱신)
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const headers = { "X-OPS-TOKEN": OPS_TOKEN };
+      const [healthRes, statusRes, historyRes, alertsRes, stdoutRes, stderrRes] = await Promise.all([
+        fetch(`/api/ops/health`, { headers }),
+        fetch(`/api/ops/evergreen/status`, { headers }),
+        fetch(`/api/ops/history?hours=24`, { headers }),
+        fetch(`/api/ops/alerts?limit=50`, { headers }),
+        fetch(`/api/ops/logs/stdout?limit=200`, { headers }).catch(() => null as any),
+        fetch(`/api/ops/logs/stderr?limit=200`, { headers }).catch(() => null as any),
+      ]);
+
+      const rawHealth = healthRes?.ok ? await healthRes.json() : null;
+      const rawStatus = statusRes?.ok ? await statusRes.json() : null;
+      const statusText = (rawHealth?.service_status ?? rawStatus?.status ?? rawHealth?.status ?? "down");
+      const service_status = typeof statusText === "string" ? statusText.toLowerCase() : "down";
+      const last_heartbeat_age_sec =
+        asNum(rawHealth?.last_heartbeat_age_sec ?? rawStatus?.heartbeat_sec_ago ?? rawStatus?.last_heartbeat_age_sec);
+      setHealth({
+        service_status,
+        last_heartbeat_age_sec,
+        last_heartbeat_ts: asNum(rawHealth?.last_heartbeat_ts ?? rawStatus?.last_heartbeat_ts),
+        grade: rawStatus?.grade ?? rawHealth?.grade,
+        mission: rawStatus?.mission ?? rawHealth?.mission,
+        next_milestone: rawHealth?.next_milestone,
+        next_milestone_eta: rawHealth?.next_milestone_eta ?? null,
+        last_update_ts: rawStatus?.last_update_ts ?? rawHealth?.last_update_ts,
+      } as any);
+      if (rawStatus) setStatus(rawStatus);
+
+      // history fetch 방어 및 필드 매핑
+      let hist: any[] = [];
+      try {
+        if (historyRes?.ok) {
+          const data = await historyRes.json();
+          hist = (data.points || data.history || []).map((p: any) => ({
+            ...p,
+            ts: Number(p.ts),
+            cumulative_runtime_sec:
+              p.cumulative_runtime_sec ?? (p.runtime_h ? Number(p.runtime_h) * 3600 : undefined),
+            progress_168h_pct: Number(p.progress_168h_pct ?? p.progress ?? 0),
+            restart_count: Number(p.restart_count ?? 0),
+          }));
+        }
+      } catch {
+        hist = [];
+      }
+      // 정렬/중복 제거(그래프 튐 방지)
+      hist.sort((a, b) => a.ts - b.ts);
+      setHistory(hist);
+
+      // alerts fetch 방어
+      let alertsList: any[] = [];
+      try {
+        if (alertsRes?.ok) {
+          const data = await alertsRes.json();
+          alertsList = data.items || data.alerts || [];
+        }
+      } catch {
+        alertsList = [];
+      }
+      setAlerts(alertsList);
+
+      // stdout/stderr 채우기
+      try {
+        if (stdoutRes && stdoutRes.ok) setStdoutLines(pickLines(await stdoutRes.json()));
+        else setStdoutLines([]);
+      } catch {
+        setStdoutLines([]);
+      }
+
+      try {
+        if (stderrRes && stderrRes.ok) setStderrLines(pickLines(await stderrRes.json()));
+        else setStderrLines([]);
+      } catch {
+        setStderrLines([]);
+      }
+
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Recent Events: WS(events) 실시간 수신
+  useEffect(() => {
+    const ws = new WebSocket("ws://127.0.0.1:8000/ws/events");
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        setEvents(prev => [msg, ...prev].slice(0, 200));
+      } catch {}
+    };
+    ws.onerror = () => {};
+    return () => ws.close();
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 10000); // 10초마다 자동 갱신
+    return () => clearInterval(interval);
+  }, []);
 
   // 차트 다운샘플링: 2000개 이상이면 1/stride만 표시
   const getDownsampledHistory = () => {
@@ -126,127 +194,72 @@ export default function OpsPage() {
     );
   };
 
-  const fetchData = async () => {
-    try {
-      const headers = { "X-OPS-TOKEN": OPS_TOKEN };
-
-      const [healthRes, statusRes, historyRes, alertsRes] = await Promise.all([
-        fetch(`${API_BASE}/health`, { headers }),
-        fetch(`${API_BASE}/evergreen/status`, { headers }),
-        fetch(`${API_BASE}/history?hours=24`, { headers }),
-        fetch(`${API_BASE}/alerts?limit=50`, { headers }),
-      ]);
-
-      const rawHealth = healthRes.ok ? await healthRes.json() : null;
-      const rawStatus = statusRes.ok ? await statusRes.json() : null;
-
-      // ===== SSOT: status 기반으로 health를 구성 (health가 {ok:true}만 와도 OK) =====
-      const statusText =
-        (rawHealth?.service_status ?? rawStatus?.status ?? rawHealth?.status ?? "down");
-
-      const service_status =
-        typeof statusText === "string" ? statusText.toLowerCase() : "down";
-
-      const last_heartbeat_age_sec =
-        rawHealth?.last_heartbeat_age_sec ??
-        rawStatus?.heartbeat_sec_ago ??
-        rawHealth?.heartbeat_sec_ago ??
-        null;
-
-      setHealth({
-        service_status,
-        last_heartbeat_age_sec,
-        last_heartbeat_ts: rawHealth?.last_heartbeat_ts ?? rawHealth?.heartbeat_ts ?? null,
-        grade: rawStatus?.grade ?? rawHealth?.grade,
-        mission: rawStatus?.mission ?? rawHealth?.mission,
-        next_milestone: rawHealth?.next_milestone,
-        next_milestone_eta: rawHealth?.next_milestone_eta ?? null,
-        last_update_ts: rawStatus?.last_update_ts ?? rawHealth?.last_update_ts,
-      } as any);
-
-      // status는 그대로 저장 (수치들은 여기서 씀)
-      if (rawStatus) setStatus(rawStatus);
-
-      if (historyRes.ok) {
-        const data = await historyRes.json();
-        setHistory(data.points || data.history || []);
-      }
-      if (alertsRes.ok) {
-        const data = await alertsRes.json();
-        setAlerts(data.items || data.alerts || []);
-      }
-
-      setLoading(false);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch data");
-      setLoading(false);
-    }
-  };
-
-  const fetchLogs = async () => {
-    try {
-      const headers = { "X-OPS-TOKEN": OPS_TOKEN };
-      const [stdoutRes, stderrRes] = await Promise.all([
-        fetch(`${API_BASE}/logs/stdout?lines=200`, { headers }),
-        fetch(`${API_BASE}/logs/stderr?lines=200`, { headers }),
-      ]);
-      if (stdoutRes.ok) {
-        const data = await stdoutRes.json();
-        setStdoutLines(data.lines || []);
-      }
-      if (stderrRes.ok) {
-        const data = await stderrRes.json();
-        setStderrLines(data.lines || []);
-      }
-    } catch (err) {
-      console.error("Failed to fetch logs:", err);
-    }
-  };
 
   useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const headers = { "X-OPS-TOKEN": OPS_TOKEN };
+        const [healthRes, statusRes, historyRes, alertsRes] = await Promise.all([
+          fetch(`${API_BASE}/health`, { headers }),
+          fetch(`${API_BASE}/evergreen/status`, { headers }),
+          fetch(`${API_BASE}/history?hours=24`, { headers }),
+          fetch(`${API_BASE}/alerts?limit=50`, { headers }),
+        ]);
+
+        const rawHealth = healthRes.ok ? await healthRes.json() : null;
+        const rawStatus = statusRes.ok ? await statusRes.json() : null;
+        const statusText = (rawHealth?.service_status ?? rawStatus?.status ?? rawHealth?.status ?? "down");
+        const service_status = typeof statusText === "string" ? statusText.toLowerCase() : "down";
+        const last_heartbeat_age_sec =
+          asNum(rawHealth?.last_heartbeat_age_sec ?? rawStatus?.last_heartbeat_age_sec);
+        setHealth({
+          service_status,
+          last_heartbeat_age_sec,
+          last_heartbeat_ts: asNum(rawHealth?.last_heartbeat_ts ?? rawStatus?.last_heartbeat_ts),
+          grade: rawStatus?.grade ?? rawHealth?.grade,
+          mission: rawStatus?.mission ?? rawHealth?.mission,
+          next_milestone: rawHealth?.next_milestone,
+          next_milestone_eta: rawHealth?.next_milestone_eta ?? null,
+          last_update_ts: rawStatus?.last_update_ts ?? rawHealth?.last_update_ts,
+        } as any);
+        if (rawStatus) setStatus(rawStatus);
+
+        // history fetch 방어 및 필드 매핑
+        let hist = [];
+        try {
+          if (historyRes.ok) {
+            const data = await historyRes.json();
+            hist = (data.points || data.history || []).map((p: any) => ({
+              ...p,
+              cumulative_runtime_sec: p.cumulative_runtime_sec ?? (p.runtime_h ? p.runtime_h * 3600 : undefined),
+            }));
+          }
+        } catch (e) {
+          hist = [];
+        }
+        setHistory(hist);
+
+        // alerts fetch 방어
+        let alertsList = [];
+        try {
+          if (alertsRes.ok) {
+            const data = await alertsRes.json();
+            alertsList = data.items || data.alerts || [];
+          }
+        } catch (e) {
+          alertsList = [];
+        }
+        setAlerts(alertsList);
+
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to fetch data");
+      } finally {
+        setLoading(false);
+      }
+    };
     fetchData();
-    fetchLogs();
-    const interval = setInterval(fetchData, 10000); // Refresh every 10s
-    return () => clearInterval(interval);
   }, []);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg">Loading Ops Dashboard...</div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Card className="w-96">
-          <CardHeader>
-            <CardTitle className="text-red-600">Error</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p>{error}</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "running":
-        return <CheckCircle2 className="h-6 w-6 text-green-500" />;
-      case "stale":
-        return <AlertCircle className="h-6 w-6 text-yellow-500" />;
-      case "down":
-      case "error":
-        return <XCircle className="h-6 w-6 text-red-500" />;
-      default:
-        return <Clock className="h-6 w-6 text-gray-500" />;
-    }
-  };
 
   const getDataMode = (): DataMode => {
     if (!health) return "DOWN";
@@ -316,8 +329,25 @@ export default function OpsPage() {
     }
   };
 
+
   // 상태 변화 리스트 (status_change만)
   const statusChanges = alerts.filter(a => a.event === "status_change");
+
+  // === 반드시 컴포넌트 스코프 내에 존재해야 함 ===
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "running":
+        return <CheckCircle2 className="h-6 w-6 text-green-500" />;
+      case "stale":
+        return <AlertCircle className="h-6 w-6 text-yellow-500" />;
+      case "down":
+      case "error":
+        return <XCircle className="h-6 w-6 text-red-500" />;
+      default:
+        return null;
+    }
+  };
+
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 p-6">
@@ -332,7 +362,11 @@ export default function OpsPage() {
           <div className="flex items-center gap-4">
             {getDataModeBadge()}
             <div className="text-sm text-slate-500">
-              Auto-refresh: 10s | Last update: {new Date().toLocaleTimeString()}
+              Auto-refresh: 10s | Last update: {isClient ? (
+                <span>{new Date().toLocaleTimeString("ko-KR")}</span>
+              ) : (
+                <span>--:--:--</span>
+              )}
             </div>
           </div>
         </div>
@@ -343,13 +377,13 @@ export default function OpsPage() {
           <Card className="rounded-xl border border-slate-200 bg-white shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-xs font-medium text-slate-600">Service Status</CardTitle>
-              {health && getStatusIcon(health.service_status)}
+              {status && getStatusIcon(String(status.status).toLowerCase())}
             </CardHeader>
             <CardContent>
-              <div className="mt-1 text-2xl font-semibold text-slate-900">{health && getStatusBadge(health.service_status)}</div>
+              <div className="mt-1 text-2xl font-semibold text-slate-900">{status && getStatusBadge(String(status.status).toLowerCase())}</div>
               <p className="mt-1 text-xs text-slate-500">
-                Heartbeat: {health?.last_heartbeat_age_sec != null
-                  ? `${health.last_heartbeat_age_sec.toFixed(1)}s ago`
+                Heartbeat: {typeof status?.heartbeat_sec_ago === "number"
+                  ? `${status.heartbeat_sec_ago.toFixed(1)}s ago`
                   : "N/A"}
               </p>
             </CardContent>
@@ -557,13 +591,13 @@ export default function OpsPage() {
             <CardTitle className="text-xs font-medium text-slate-600">History (24h)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="relative h-[260px] w-full overflow-hidden">
+            <div style={{ width: "100%", height: 260, minHeight: 260 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={getDownsampledHistory()} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                   <XAxis dataKey="ts" tickFormatter={ts => new Date(ts * 1000).getHours() + ":" + String(new Date(ts * 1000).getMinutes()).padStart(2, "0")}/>
-                  <YAxis dataKey="cumulative_runtime_sec" tickFormatter={v => (v/3600).toFixed(1)} width={60} />
-                  <Tooltip labelFormatter={ts => new Date(ts * 1000).toLocaleString()} formatter={(v: any, n: any) => n === "cumulative_runtime_sec" && typeof v === "number" ? (v/3600).toFixed(2) + "h" : v} />
-                  <Line type="monotone" dataKey="cumulative_runtime_sec" stroke="#2563eb" dot={false} name="Runtime (h)" />
+                  <YAxis dataKey="runtime_h" tickFormatter={v => v.toFixed(1)} width={60} />
+                  <Tooltip labelFormatter={ts => new Date(ts * 1000).toLocaleString()} formatter={(v: any, n: any) => n === "runtime_h" && typeof v === "number" ? v.toFixed(2) + "h" : v} />
+                  <Line type="monotone" dataKey="runtime_h" stroke="#2563eb" dot={false} name="Runtime (h)" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
