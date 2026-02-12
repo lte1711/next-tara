@@ -1,15 +1,7 @@
+
 "use client";
 
-import { useEffect, useState } from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CheckCircle2, XCircle, AlertCircle, Clock, TrendingUp } from "lucide-react";
 
-const OPS_TOKEN = process.env.NEXT_PUBLIC_OPS_TOKEN || "dev-ops-token-change-me";
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000") + "/api/ops";
 
 interface EvergreenStatus {
   cumulative_runtime_sec: number;
@@ -29,6 +21,10 @@ interface HealthStatus {
   service_status: "running" | "stale" | "down" | "error";
   last_heartbeat_age_sec: number | null;
   last_heartbeat_ts: number | null;
+  grade?: string;
+  next_milestone_eta?: number | null;
+  next_milestone?: string | null;
+  [key: string]: any;
 }
 
 type DataMode = "LIVE" | "STALE" | "DOWN" | "DEMO";
@@ -57,15 +53,28 @@ interface AlertEvent {
   msg: string;
 }
 
+const OPS_TOKEN = process.env.NEXT_PUBLIC_OPS_TOKEN || "dev-ops-token-change-me";
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000") + "/api/ops";
+
+import React, { useEffect, useState } from "react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CheckCircle2, XCircle, AlertCircle, Clock, TrendingUp } from "lucide-react";
+
 export default function OpsPage() {
+  // 안전 숫자 변환 헬퍼 (SSOT)
+  const asNum = (v: any, fallback = 0) =>
+    typeof v === "number" && Number.isFinite(v) ? v : fallback;
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [status, setStatus] = useState<EvergreenStatus | null>(null);
-  const [events, setEvents] = useState<Event[]>([]);
+  const [events] = useState<Event[]>([]);
   const [stdoutLines, setStdoutLines] = useState<string[]>([]);
   const [stderrLines, setStderrLines] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // PHASE 24-5
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
 
@@ -79,14 +88,15 @@ export default function OpsPage() {
   // 운영 등급 배지 및 미션/마일스톤
   const getGradeBadge = () => {
     const grade = health?.grade || "BRONZE";
-    const gradeColor = {
+    const gradeColor: Record<string, string> = {
       "EVERGREEN": "bg-emerald-700 border-emerald-900",
       "GOLD": "bg-yellow-400 text-yellow-900 border-yellow-600",
       "SILVER": "bg-slate-400 text-slate-900 border-slate-500",
       "BRONZE": "bg-orange-400 text-orange-900 border-orange-600"
-    }[grade] || "bg-gray-300 border-gray-400";
+    };
+    const color = gradeColor[grade] || "bg-gray-300 border-gray-400";
     return (
-      <span className={`inline-flex items-center gap-1 ${gradeColor} text-xs font-bold px-3 py-1 rounded-full shadow-sm border ml-2`}>
+      <span className={`inline-flex items-center gap-1 ${color} text-xs font-bold px-3 py-1 rounded-full shadow-sm border ml-2`}>
         <span className="text-lg">🏆</span> {grade} GRADE
       </span>
     );
@@ -97,7 +107,7 @@ export default function OpsPage() {
     if (!health) return null;
     const eta = health.next_milestone_eta;
     let etaStr = "";
-    if (eta != null) {
+    if (typeof eta === "number" && Number.isFinite(eta)) {
       const h = Math.floor(eta / 3600);
       const m = Math.floor((eta % 3600) / 60);
       etaStr = ` (ETA: ${h}h ${m}m)`;
@@ -105,9 +115,9 @@ export default function OpsPage() {
     return (
       <span className="ml-4 text-xs font-bold text-blue-700 bg-blue-100 px-2 py-1 rounded">
         168H MISSION
-        {health.next_milestone && (
+        {health.next_milestone ? (
           <> | Next: <span className="text-blue-900">{health.next_milestone}</span>{etaStr}</>
-        )}
+        ) : null}
       </span>
     );
   };
@@ -115,15 +125,12 @@ export default function OpsPage() {
   const fetchData = async () => {
     try {
       const headers = { "X-OPS-TOKEN": OPS_TOKEN };
-
-
       const [healthRes, statusRes, historyRes, alertsRes] = await Promise.all([
         fetch(`${API_BASE}/health`, { headers }),
         fetch(`${API_BASE}/evergreen/status`, { headers }),
         fetch(`${API_BASE}/history?hours=24`, { headers }),
         fetch(`${API_BASE}/alerts?limit=50`, { headers }),
       ]);
-
       if (healthRes.ok) setHealth(await healthRes.json());
       if (statusRes.ok) setStatus(await statusRes.json());
       if (historyRes.ok) {
@@ -134,7 +141,6 @@ export default function OpsPage() {
         const data = await alertsRes.json();
         setAlerts(data.alerts || []);
       }
-
       setLoading(false);
       setError(null);
     } catch (err) {
@@ -150,7 +156,6 @@ export default function OpsPage() {
         fetch(`${API_BASE}/logs/stdout?lines=200`, { headers }),
         fetch(`${API_BASE}/logs/stderr?lines=200`, { headers }),
       ]);
-
       if (stdoutRes.ok) {
         const data = await stdoutRes.json();
         setStdoutLines(data.lines || []);
@@ -319,20 +324,16 @@ export default function OpsPage() {
               <TrendingUp className="h-4 w-4 text-blue-500" />
             </CardHeader>
             <CardContent>
-              {/* 숫자 안전 변환 헬퍼 */}
               {(() => {
                 const asNum = (v: any, fallback = 0) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
-                // status가 있을 때, sec/h 둘 다 호환 (둘 중 있는 걸로 계산)
                 const cumulativeRuntimeSec =
                   typeof (status as any)?.cumulative_runtime_sec === "number"
                     ? asNum((status as any).cumulative_runtime_sec, 0)
                     : asNum((status as any)?.cumulative_runtime_h, 0) * 3600;
-
                 const cumulativeRuntimeH =
                   typeof (status as any)?.cumulative_runtime_h === "number"
                     ? asNum((status as any).cumulative_runtime_h, 0)
                     : cumulativeRuntimeSec / 3600;
-
                 const targetH = asNum((status as any)?.target_h, 168);
                 return <>
                   <div className="mt-1 text-2xl font-semibold text-slate-900">{cumulativeRuntimeH.toFixed(2)}h</div>
@@ -348,13 +349,33 @@ export default function OpsPage() {
           <Card className="rounded-xl border border-slate-200 bg-white shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-xs font-medium text-slate-600">Progress</CardTitle>
-              <div className="text-sm font-semibold text-blue-600">{status?.progress_percent.toFixed(2)}%</div>
+              {(() => {
+                const progressPct =
+                  typeof (status as any)?.progress_percent === "number"
+                    ? asNum((status as any).progress_percent, 0)
+                    : asNum((status as any)?.progress_pct, 0);
+                return (
+                  <div className="text-sm font-semibold text-blue-600">{progressPct.toFixed(2)}%</div>
+                );
+              })()}
             </CardHeader>
             <CardContent>
-              <Progress value={status?.progress_percent || 0} className="mt-2" />
-              <p className="mt-1 text-xs text-slate-500">
-                Remaining: {status?.remaining_hours.toFixed(2)}h
-              </p>
+              {(() => {
+                const progressPct =
+                  typeof (status as any)?.progress_percent === "number"
+                    ? asNum((status as any).progress_percent, 0)
+                    : asNum((status as any)?.progress_pct, 0);
+                const remainingH =
+                  typeof (status as any)?.remaining_h === "number"
+                    ? asNum((status as any).remaining_h, 0)
+                    : asNum((status as any)?.remaining_hours, 0);
+                return <>
+                  <Progress value={progressPct} className="mt-2" />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Remaining: {remainingH.toFixed(2)}h
+                  </p>
+                </>;
+              })()}
             </CardContent>
           </Card>
 
@@ -367,7 +388,7 @@ export default function OpsPage() {
             <CardContent>
               <div className="mt-1 text-2xl font-semibold text-slate-900">{status?.restart_count || 0}</div>
               <p className="mt-1 text-xs text-slate-500">
-                Ticks: {status?.total_ticks.toLocaleString() || 0}
+                Ticks: {asNum((status as any)?.total_ticks, 0).toLocaleString()}
               </p>
             </CardContent>
           </Card>
@@ -379,38 +400,46 @@ export default function OpsPage() {
             <CardTitle className="text-xs font-medium text-slate-600">Milestones</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-4">
-              <div className={`flex-1 p-4 rounded-lg ${status?.milestones["24h"] ? "bg-green-100" : "bg-gray-100"}`}>
-                <div className="flex items-center gap-2">
-                  {status?.milestones["24h"] ? (
-                    <CheckCircle2 className="h-5 w-5 text-green-600" />
-                  ) : (
-                    <Clock className="h-5 w-5 text-gray-400" />
-                  )}
-                  <span className="font-semibold">24 Hours</span>
+            {(() => {
+              const milestones = (status as any)?.milestones ?? {};
+              const m24 = !!milestones["24h"];
+              const m72 = !!milestones["72h"];
+              const m168 = !!milestones["168h"];
+              return (
+                <div className="flex gap-4">
+                  <div className={`flex-1 p-4 rounded-lg ${m24 ? "bg-green-100" : "bg-gray-100"}`}>
+                    <div className="flex items-center gap-2">
+                      {m24 ? (
+                        <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      ) : (
+                        <Clock className="h-5 w-5 text-gray-400" />
+                      )}
+                      <span className="font-semibold">24 Hours</span>
+                    </div>
+                  </div>
+                  <div className={`flex-1 p-4 rounded-lg ${m72 ? "bg-green-100" : "bg-gray-100"}`}>
+                    <div className="flex items-center gap-2">
+                      {m72 ? (
+                        <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      ) : (
+                        <Clock className="h-5 w-5 text-gray-400" />
+                      )}
+                      <span className="font-semibold">72 Hours</span>
+                    </div>
+                  </div>
+                  <div className={`flex-1 p-4 rounded-lg ${m168 ? "bg-green-100" : "bg-gray-100"}`}>
+                    <div className="flex items-center gap-2">
+                      {m168 ? (
+                        <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      ) : (
+                        <Clock className="h-5 w-5 text-gray-400" />
+                      )}
+                      <span className="font-semibold">168 Hours 🎯</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className={`flex-1 p-4 rounded-lg ${status?.milestones["72h"] ? "bg-green-100" : "bg-gray-100"}`}>
-                <div className="flex items-center gap-2">
-                  {status?.milestones["72h"] ? (
-                    <CheckCircle2 className="h-5 w-5 text-green-600" />
-                  ) : (
-                    <Clock className="h-5 w-5 text-gray-400" />
-                  )}
-                  <span className="font-semibold">72 Hours</span>
-                </div>
-              </div>
-              <div className={`flex-1 p-4 rounded-lg ${status?.milestones["168h"] ? "bg-green-100" : "bg-gray-100"}`}>
-                <div className="flex items-center gap-2">
-                  {status?.milestones["168h"] ? (
-                    <CheckCircle2 className="h-5 w-5 text-green-600" />
-                  ) : (
-                    <Clock className="h-5 w-5 text-gray-400" />
-                  )}
-                  <span className="font-semibold">168 Hours 🎯</span>
-                </div>
-              </div>
-            </div>
+              );
+            })()}
           </CardContent>
         </Card>
 
@@ -448,7 +477,7 @@ export default function OpsPage() {
                             </td>
                             <td className="px-4 py-2 font-mono text-xs">{event.event || "-"}</td>
                             <td className="px-4 py-2">
-                              <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold ${getSeverityColor(event.severity)}`}>{event.severity || "info"}</span>
+                              <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold ${getSeverityColor(event.severity ?? "info")}`}>{event.severity || "info"}</span>
                             </td>
                             <td className="px-4 py-2">
                               {event.cumulative_runtime_sec ? (event.cumulative_runtime_sec / 3600).toFixed(2) : "-"}
@@ -495,7 +524,7 @@ export default function OpsPage() {
                 <LineChart data={getDownsampledHistory()} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                   <XAxis dataKey="ts" tickFormatter={ts => new Date(ts * 1000).getHours() + ":" + String(new Date(ts * 1000).getMinutes()).padStart(2, "0")}/>
                   <YAxis dataKey="cumulative_runtime_sec" tickFormatter={v => (v/3600).toFixed(1)} width={60} />
-                  <Tooltip labelFormatter={ts => new Date(ts * 1000).toLocaleString()} formatter={(v, n) => n === "cumulative_runtime_sec" ? (v/3600).toFixed(2) + "h" : v} />
+                  <Tooltip labelFormatter={ts => new Date(ts * 1000).toLocaleString()} formatter={(v: any, n: any) => n === "cumulative_runtime_sec" && typeof v === "number" ? (v/3600).toFixed(2) + "h" : v} />
                   <Line type="monotone" dataKey="cumulative_runtime_sec" stroke="#2563eb" dot={false} name="Runtime (h)" />
                 </LineChart>
               </ResponsiveContainer>
