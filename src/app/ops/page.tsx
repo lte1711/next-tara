@@ -21,9 +21,13 @@ interface HealthStatus {
   service_status: "running" | "stale" | "down" | "error";
   last_heartbeat_age_sec: number | null;
   last_heartbeat_ts: number | null;
+
+  // optional
   grade?: string;
+  mission?: string;
+  next_milestone?: string;
   next_milestone_eta?: number | null;
-  next_milestone?: string | null;
+  last_update_ts?: number;
   [key: string]: any;
 }
 
@@ -131,8 +135,30 @@ export default function OpsPage() {
         fetch(`${API_BASE}/history?hours=24`, { headers }),
         fetch(`${API_BASE}/alerts?limit=50`, { headers }),
       ]);
-      if (healthRes.ok) setHealth(await healthRes.json());
-      if (statusRes.ok) setStatus(await statusRes.json());
+      if (healthRes.ok) {
+        const raw = await healthRes.json();
+        // service_status 후보들 흡수
+        const svc = (raw?.service_status ?? raw?.status ?? "down");
+        const service_status = typeof svc === "string" ? svc.toLowerCase() : "down";
+        setHealth({
+          service_status,
+          last_heartbeat_age_sec: raw?.last_heartbeat_age_sec ?? raw?.heartbeat_sec_ago ?? null,
+          last_heartbeat_ts: raw?.last_heartbeat_ts ?? raw?.heartbeat_ts ?? null,
+          grade: raw?.grade,
+          next_milestone: raw?.next_milestone,
+          next_milestone_eta: raw?.next_milestone_eta,
+        } as any);
+      }
+      if (statusRes.ok) {
+        const raw = await statusRes.json();
+        setStatus(raw);
+        setHealth((prev: any) => ({
+          ...(prev ?? { service_status: "running", last_heartbeat_age_sec: 0, last_heartbeat_ts: null }),
+          grade: raw?.grade ?? prev?.grade,
+          mission: raw?.mission ?? prev?.mission,
+          last_update_ts: raw?.last_update_ts ?? prev?.last_update_ts,
+        }));
+      }
       if (historyRes.ok) {
         const data = await historyRes.json();
         setHistory(data.history || []);
@@ -250,10 +276,11 @@ export default function OpsPage() {
       down: "destructive",
       error: "destructive",
     };
-    const safeStatus = typeof status === "string" && status.length > 0 ? status.toUpperCase() : "UNKNOWN";
+    const key = typeof status === "string" && status.length > 0 ? status.toLowerCase() : "unknown";
+    const label = key.toUpperCase();
     return (
-      <Badge variant={variants[safeStatus] || "outline"} className="text-sm">
-        {safeStatus}
+      <Badge variant={variants[key] || "outline"} className="text-sm">
+        {label}
       </Badge>
     );
   };
@@ -312,7 +339,9 @@ export default function OpsPage() {
             <CardContent>
               <div className="mt-1 text-2xl font-semibold text-slate-900">{health && getStatusBadge(health.service_status)}</div>
               <p className="mt-1 text-xs text-slate-500">
-                Heartbeat: {health?.last_heartbeat_age_sec ? `${health.last_heartbeat_age_sec.toFixed(1)}s ago` : "N/A"}
+                Heartbeat: {health?.last_heartbeat_age_sec != null
+                  ? `${health.last_heartbeat_age_sec.toFixed(1)}s ago`
+                  : "N/A"}
               </p>
             </CardContent>
           </Card>
