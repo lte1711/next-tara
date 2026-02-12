@@ -129,44 +129,53 @@ export default function OpsPage() {
   const fetchData = async () => {
     try {
       const headers = { "X-OPS-TOKEN": OPS_TOKEN };
+
       const [healthRes, statusRes, historyRes, alertsRes] = await Promise.all([
         fetch(`${API_BASE}/health`, { headers }),
         fetch(`${API_BASE}/evergreen/status`, { headers }),
         fetch(`${API_BASE}/history?hours=24`, { headers }),
         fetch(`${API_BASE}/alerts?limit=50`, { headers }),
       ]);
-      if (healthRes.ok) {
-        const raw = await healthRes.json();
-        // service_status 후보들 흡수
-        const svc = (raw?.service_status ?? raw?.status ?? "down");
-        const service_status = typeof svc === "string" ? svc.toLowerCase() : "down";
-        setHealth({
-          service_status,
-          last_heartbeat_age_sec: raw?.last_heartbeat_age_sec ?? raw?.heartbeat_sec_ago ?? null,
-          last_heartbeat_ts: raw?.last_heartbeat_ts ?? raw?.heartbeat_ts ?? null,
-          grade: raw?.grade,
-          next_milestone: raw?.next_milestone,
-          next_milestone_eta: raw?.next_milestone_eta,
-        } as any);
-      }
-      if (statusRes.ok) {
-        const raw = await statusRes.json();
-        setStatus(raw);
-        setHealth((prev: any) => ({
-          ...(prev ?? { service_status: "running", last_heartbeat_age_sec: 0, last_heartbeat_ts: null }),
-          grade: raw?.grade ?? prev?.grade,
-          mission: raw?.mission ?? prev?.mission,
-          last_update_ts: raw?.last_update_ts ?? prev?.last_update_ts,
-        }));
-      }
+
+      const rawHealth = healthRes.ok ? await healthRes.json() : null;
+      const rawStatus = statusRes.ok ? await statusRes.json() : null;
+
+      // ===== SSOT: status 기반으로 health를 구성 (health가 {ok:true}만 와도 OK) =====
+      const statusText =
+        (rawHealth?.service_status ?? rawStatus?.status ?? rawHealth?.status ?? "down");
+
+      const service_status =
+        typeof statusText === "string" ? statusText.toLowerCase() : "down";
+
+      const last_heartbeat_age_sec =
+        rawHealth?.last_heartbeat_age_sec ??
+        rawStatus?.heartbeat_sec_ago ??
+        rawHealth?.heartbeat_sec_ago ??
+        null;
+
+      setHealth({
+        service_status,
+        last_heartbeat_age_sec,
+        last_heartbeat_ts: rawHealth?.last_heartbeat_ts ?? rawHealth?.heartbeat_ts ?? null,
+        grade: rawStatus?.grade ?? rawHealth?.grade,
+        mission: rawStatus?.mission ?? rawHealth?.mission,
+        next_milestone: rawHealth?.next_milestone,
+        next_milestone_eta: rawHealth?.next_milestone_eta ?? null,
+        last_update_ts: rawStatus?.last_update_ts ?? rawHealth?.last_update_ts,
+      } as any);
+
+      // status는 그대로 저장 (수치들은 여기서 씀)
+      if (rawStatus) setStatus(rawStatus);
+
       if (historyRes.ok) {
         const data = await historyRes.json();
-        setHistory(data.history || []);
+        setHistory(data.points || data.history || []);
       }
       if (alertsRes.ok) {
         const data = await alertsRes.json();
-        setAlerts(data.alerts || []);
+        setAlerts(data.items || data.alerts || []);
       }
+
       setLoading(false);
       setError(null);
     } catch (err) {
