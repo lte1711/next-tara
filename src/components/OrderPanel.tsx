@@ -1,13 +1,18 @@
-import React from 'react'
+"use client"
+
+import React, { useMemo, useState } from 'react'
 import { RiskMode, TradeLevel } from '../types/risk'
 
 export interface OrderPanelProps {
   mode: RiskMode
   level: TradeLevel
   reason?: string
+  initialSymbol?: string
+  initialQty?: string
+  initialPrice?: string
 }
 
-export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason }) => {
+export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, initialSymbol = 'BTCUSDT', initialQty = '1', initialPrice = '50000' }) => {
   const isKill = mode === 'KILL'
   const isDowngrade = mode === 'DOWNGRADE'
 
@@ -44,6 +49,39 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason }) =
   const topStyle: React.CSSProperties = {}
   if (mode === 'WARN') topStyle.borderTop = '2px solid var(--warn)'
   if (mode === 'KILL') topStyle.borderTop = '4px solid var(--kill)'
+  // Local input state (client-rendered) with sensible defaults. For SSR evidence capture
+  // the `initial*` props may be provided by the page temporarily.
+  const [symbol, setSymbol] = useState<string>(initialSymbol)
+  const [qty, setQty] = useState<string>(initialQty)
+  const [price, setPrice] = useState<string>(initialPrice)
+
+  // Validation rules
+  const errors = useMemo(() => {
+    const e: { symbol?: string; qty?: string; price?: string; form?: string } = {}
+    const s = (symbol ?? '').trim()
+    if (!s) e.symbol = 'Symbol is required'
+    else if (s.length < 1 || s.length > 20) e.symbol = 'Symbol length 1–20'
+
+    const q = parseFloat((qty ?? '').toString())
+    if (qty === undefined || qty === null || (qty ?? '') === '') e.qty = 'Qty is required'
+    else if (!Number.isFinite(q) || q <= 0) e.qty = 'Qty must be a number > 0'
+
+    // Price validation only applies when price is enabled (not DOWNGRADE)
+    if (!isDowngrade) {
+      const p = parseFloat((price ?? '').toString())
+      if (price === undefined || price === null || (price ?? '') === '') e.price = 'Price is required'
+      else if (!Number.isFinite(p) || p <= 0) e.price = 'Price must be a number > 0'
+    }
+
+    return e
+  }, [symbol, qty, price, isDowngrade])
+
+  const hasErrors = Object.keys(errors).length > 0
+  const canSubmit = !isKill && !hasErrors
+
+  // Input styles with error state preserved space for inline error lines
+  const inputBase: React.CSSProperties = { padding: 8, borderRadius: 6, border: '1px solid var(--border)', background: isKill ? '#111' : 'transparent', color: 'var(--text)', fontFamily: 'ui-monospace, monospace' }
+  const errorBorder = { border: '1px solid rgba(185,28,28,0.7)', background: 'rgba(185,28,28,0.03)' }
 
   return (
     <div style={{ background: 'var(--panel2)', padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border)', minWidth: 280, ...topStyle }}>
@@ -60,16 +98,45 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason }) =
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <input placeholder="Symbol (e.g. BTCUSDT)" style={{ padding: 8, borderRadius: 6, border: '1px solid var(--border)', background: isKill ? '#111' : 'transparent', color: 'var(--text)', fontFamily: 'ui-monospace, monospace' }} disabled={isKill} />
+        <div>
+          <input
+            placeholder="Symbol (e.g. BTCUSDT)"
+            value={symbol}
+            onChange={e => setSymbol(e.target.value)}
+            style={{ ...inputBase, ...(errors.symbol ? errorBorder : {}) }}
+            disabled={isKill}
+          />
+          <div style={{ minHeight: 18, fontSize: 12, color: 'rgba(185,28,28,0.9)', marginTop: 4 }}>{errors.symbol ?? ' '}</div>
+        </div>
+
         <div style={{ display: 'flex', gap: 8 }}>
-          <input placeholder="Qty" style={{ flex: 1, padding: 8, borderRadius: 6, border: '1px solid var(--border)', background: isKill ? '#111' : 'transparent', color: 'var(--text)', fontFamily: 'ui-monospace, monospace' }} disabled={isKill} />
-          <input placeholder="Price" style={{ width: 120, padding: 8, borderRadius: 6, border: '1px solid var(--border)', background: isKill ? '#111' : 'transparent', color: 'var(--text)', fontFamily: 'ui-monospace, monospace' }} disabled={isKill || isDowngrade} />
+          <div style={{ flex: 1 }}>
+            <input
+              placeholder="Qty"
+              value={qty}
+              onChange={e => setQty(e.target.value)}
+              style={{ ...inputBase, ...(errors.qty ? errorBorder : {}) }}
+              disabled={isKill}
+            />
+            <div style={{ minHeight: 18, fontSize: 12, color: 'rgba(185,28,28,0.9)', marginTop: 4 }}>{errors.qty ?? ' '}</div>
+          </div>
+
+          <div style={{ width: 120 }}>
+            <input
+              placeholder="Price"
+              value={price}
+              onChange={e => setPrice(e.target.value)}
+              style={{ ...inputBase, ...(errors.price ? errorBorder : {}) }}
+              disabled={isKill || isDowngrade}
+            />
+            <div style={{ minHeight: 18, fontSize: 12, color: 'rgba(185,28,28,0.9)', marginTop: 4 }}>{errors.price ?? ' '}</div>
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
-          <button style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)' }} disabled={isKill}>Preview</button>
+          <button style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)' }} disabled={!canSubmit}>Preview</button>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button style={sendBtnStyle} disabled={sendBtnDisabled}>Send Order</button>
+            <button style={{ ...sendBtnStyle, opacity: canSubmit ? 1 : 0.5 }} disabled={!canSubmit}>Send Order</button>
             {isDowngrade && <div style={{ fontSize: 11, color: 'var(--muted)', border: '1px solid rgba(255,255,255,0.04)', padding: '2px 6px', borderRadius: 4 }}>Limited</div>}
           </div>
         </div>
