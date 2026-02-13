@@ -174,27 +174,26 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
           <div style={{ minHeight: 18, fontSize: 12, color: 'rgba(185,28,28,0.9)', marginTop: 4 }}>{errors.symbol ?? ' '}</div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 8, width: '100%' }}>
+          <div style={{ minWidth: 0 }}>
             <input
               placeholder="Qty"
               value={qtyInput}
               onChange={e => setQtyInput(e.target.value)}
               onBlur={() => setQtyHint(computeNearestQtyHint(qtyInput))}
-              style={{ ...inputBase, ...(errors.qty ? errorBorder : {}) }}
+              style={{ ...inputBase, ...(errors.qty ? errorBorder : {}), width: '100%', minWidth: 0, boxSizing: 'border-box' }}
               disabled={isKill}
             />
             <div style={{ minHeight: 18, fontSize: 12, color: 'rgba(185,28,28,0.9)', marginTop: 4 }}>{errors.qty ?? ' '}</div>
             <div style={{ minHeight: 16, fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{qtyHint ?? ' '}</div>
           </div>
-
-          <div style={{ width: 120 }}>
+          <div style={{ minWidth: 0 }}>
             <input
               placeholder="Price"
               value={priceInput}
               onChange={e => setPriceInput(e.target.value)}
               onBlur={() => setPriceHint(computeNearestPriceHint(priceInput))}
-              style={{ ...inputBase, ...(errors.price ? errorBorder : {}) }}
+              style={{ ...inputBase, ...(errors.price ? errorBorder : {}), width: '100%', minWidth: 0, boxSizing: 'border-box' }}
               disabled={isKill || isDowngrade}
             />
             <div style={{ minHeight: 18, fontSize: 12, color: 'rgba(185,28,28,0.9)', marginTop: 4 }}>{errors.price ?? ' '}</div>
