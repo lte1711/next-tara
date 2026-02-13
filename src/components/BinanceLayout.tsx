@@ -1,7 +1,11 @@
+
+"use client"
+
 import React from 'react'
+import DemoControls from './DemoControls'
 import GlobalRiskBar from './GlobalRiskBar'
 import OrderPanel from './OrderPanel'
-import { getMockRiskSnapshot } from '../mocks/riskMock'
+import { useRisk } from '../context/RiskContext'
 import type { RiskSnapshot } from '../types/risk'
 
 interface Props {
@@ -9,6 +13,9 @@ interface Props {
 }
 
 export const BinanceLayout: React.FC<Props> = ({ children }) => {
+  // snapshot and control state come from RiskContext (Provider)
+  const { snapshot } = useRisk()
+
   // Note: purely presentational scaffold for Binance-like layout
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)' }}>
@@ -27,25 +34,18 @@ export const BinanceLayout: React.FC<Props> = ({ children }) => {
             <h1 style={{ margin: 0 }}>Binance View (Scaffold)</h1>
             <div style={{ color: 'var(--muted)', fontSize: 12 }}>Institutional theme — High contrast</div>
           </div>
-          <div style={{ minWidth: 320 }}>
-            {/* Dummy mode shared between RiskBar and OrderPanel (scaffold only) */}
-            {
-              // Use static mock snapshot (no timers/intervals in scaffold)
-              (() => {
-                const snapshot: RiskSnapshot = getMockRiskSnapshot(0)
-                return (
-                  <GlobalRiskBar
-                    mode={snapshot.mode}
-                    pnl={snapshot.pnl}
-                    drawdown={snapshot.drawdown}
-                    exposure={snapshot.exposure}
-                    lastUpdate={snapshot.lastUpdate}
-                    riskEngineActive={snapshot.riskEngineActive}
-                    killArmed={snapshot.killSwitchArmed}
-                  />
-                )
-              })()
-            }
+          <div style={{ minWidth: 320, position: 'relative' }}>
+            {/* Mode-driven RiskBar (provided by RiskContext) */}
+            <GlobalRiskBar
+              mode={snapshot.mode}
+              pnl={snapshot.pnl}
+              drawdown={snapshot.drawdown}
+              exposure={snapshot.exposure}
+              lastUpdate={snapshot.lastUpdate}
+              riskEngineActive={snapshot.riskEngineActive}
+              killArmed={snapshot.killSwitchArmed}
+            />
+            <DemoControls />
           </div>
         </header>
 
@@ -62,12 +62,8 @@ export const BinanceLayout: React.FC<Props> = ({ children }) => {
               Positions / PnL placeholder
             </div>
             <div>
-              {/* OrderPanel receives same dummy mode and trade level */}
-              {/* Inject snapshot-derived props (static call) */}
-              {(() => {
-                const s = getMockRiskSnapshot(0)
-                return <OrderPanel mode={s.mode} level={s.level} reason={s.reason} />
-              })()}
+              {/* OrderPanel receives snapshot from RiskContext */}
+              <OrderPanel mode={snapshot.mode} level={snapshot.level} reason={snapshot.reason} />
             </div>
           </aside>
         </section>
