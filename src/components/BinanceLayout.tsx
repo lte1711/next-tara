@@ -2,7 +2,6 @@
 "use client"
 
 import React from 'react'
-import DemoControls from './DemoControls'
 import GlobalRiskBar from './GlobalRiskBar'
 import OrderPanel from './OrderPanel'
 import { useRisk } from '../context/RiskContext'
@@ -29,32 +28,29 @@ export const BinanceLayout: React.FC<Props> = ({ children }) => {
       </aside>
 
       <main style={{ flex: 1, padding: 16 }}>
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, position: 'relative', paddingRight: 380 }}>
-          <div>
-            <h1 style={{ margin: 0 }}>Binance View (Scaffold)</h1>
-            <div style={{ color: 'var(--muted)', fontSize: 12 }}>Institutional theme — High contrast</div>
-          </div>
-          <div style={{ minWidth: 320, position: 'relative' }}>
-            {/* RiskBar wrap: border/top styles are confined to GlobalRiskBar itself */}
-            <div style={{ width: '100%' }}>
-              <GlobalRiskBar
-                mode={snapshot.mode}
-                pnl={snapshot.pnl}
-                drawdown={snapshot.drawdown}
-                exposure={snapshot.exposure}
-                lastUpdate={snapshot.lastUpdate}
-                riskEngineActive={snapshot.riskEngineActive}
-                killArmed={snapshot.killSwitchArmed}
-              />
+        <header style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+          {/* Top row: match the grid used in the main section so right edge lines up with the right column */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', alignItems: 'center', gap: 4 }}>
+            <div style={{ minWidth: 0 }}>
+              <h1 style={{ margin: 0 }}>Binance View (Scaffold)</h1>
+              <div style={{ color: 'var(--muted)', fontSize: 12 }}>Institutional theme — High contrast</div>
             </div>
+          </div>
 
-            {/* Controls positioned outside of RiskBar visual flow to avoid border overlap */}
-            <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 80, maxWidth: 340, overflowX: 'hidden', display: 'flex', alignItems: 'center' }}>
-              <div style={{ paddingLeft: 12, borderLeft: '1px solid var(--border)', marginLeft: 8 }}>
-                <DemoControls />
-              </div>
-            </div>
+          {/* Second row: full-width GlobalRiskBar (metrics + indicators) */}
+          <div style={{ width: '100%' }}>
+            <GlobalRiskBar
+              mode={snapshot.mode}
+              pnl={snapshot.pnl}
+              drawdown={snapshot.drawdown}
+              exposure={snapshot.exposure}
+              lastUpdate={snapshot.lastUpdate}
+              riskEngineActive={snapshot.riskEngineActive}
+              killArmed={snapshot.killSwitchArmed}
+            />
           </div>
+
+          {/* DemoControls are rendered inside GlobalRiskBar (compact single-line) */}
         </header>
 
         <section style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
