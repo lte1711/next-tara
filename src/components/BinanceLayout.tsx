@@ -1,7 +1,8 @@
 import React from 'react'
 import GlobalRiskBar from './GlobalRiskBar'
 import OrderPanel from './OrderPanel'
-import { RiskMode, TradeLevel } from '../types/risk'
+import { getMockRiskSnapshot } from '../mocks/riskMock'
+import type { RiskSnapshot } from '../types/risk'
 
 interface Props {
   children?: React.ReactNode
@@ -29,9 +30,20 @@ export const BinanceLayout: React.FC<Props> = ({ children }) => {
           <div style={{ minWidth: 320 }}>
             {/* Dummy mode shared between RiskBar and OrderPanel (scaffold only) */}
             {
+              // Use static mock snapshot (no timers/intervals in scaffold)
               (() => {
-                const mode: RiskMode = 'KILL' // change only in code, not at runtime
-                return <GlobalRiskBar mode={mode} pnl={123.45} drawdown={0.12} exposure={0.05} lastUpdate={new Date().toLocaleTimeString('ko-KR')} riskEngineActive={true} killArmed={true} />
+                const snapshot: RiskSnapshot = getMockRiskSnapshot(0)
+                return (
+                  <GlobalRiskBar
+                    mode={snapshot.mode}
+                    pnl={snapshot.pnl}
+                    drawdown={snapshot.drawdown}
+                    exposure={snapshot.exposure}
+                    lastUpdate={snapshot.lastUpdate}
+                    riskEngineActive={snapshot.riskEngineActive}
+                    killArmed={snapshot.killSwitchArmed}
+                  />
+                )
               })()
             }
           </div>
@@ -51,7 +63,11 @@ export const BinanceLayout: React.FC<Props> = ({ children }) => {
             </div>
             <div>
               {/* OrderPanel receives same dummy mode and trade level */}
-              <OrderPanel mode={'KILL'} level={'L1_LIMITED'} reason={'Maintenance window: trading disabled'} />
+              {/* Inject snapshot-derived props (static call) */}
+              {(() => {
+                const s = getMockRiskSnapshot(0)
+                return <OrderPanel mode={s.mode} level={s.level} reason={s.reason} />
+              })()}
             </div>
           </aside>
         </section>
