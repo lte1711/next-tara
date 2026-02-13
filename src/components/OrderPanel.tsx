@@ -54,6 +54,30 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
   const [symbol, setSymbol] = useState<string>(initialSymbol)
   const [qty, setQty] = useState<string>(initialQty)
   const [price, setPrice] = useState<string>(initialPrice)
+  // Hints shown below fields (always reserve space in DOM)
+  const isMultipleOfStepLocal = isMultipleOfStep
+  const computeNearestQtyHint = (valStr: string) => {
+    const v = parseFloat((valStr ?? '').toString())
+    const step = 0.001
+    if (!Number.isFinite(v)) return ''
+    if (v <= 0) return ''
+    if (isMultipleOfStepLocal(v, step)) return ''
+    const nearest = Math.round(v / step) * step
+    return `Nearest valid step: ${formatNumber(nearest, 3)}`
+  }
+
+  const computeNearestPriceHint = (valStr: string) => {
+    const v = parseFloat((valStr ?? '').toString())
+    const tick = 0.01
+    if (!Number.isFinite(v)) return ''
+    if (v <= 0) return ''
+    if (isMultipleOfStepLocal(v, tick)) return ''
+    const nearest = Math.round(v / tick) * tick
+    return `Nearest valid step: ${formatNumber(nearest, 2)}`
+  }
+
+  const [qtyHint, setQtyHint] = useState<string>(() => computeNearestQtyHint(initialQty))
+  const [priceHint, setPriceHint] = useState<string>(() => computeNearestPriceHint(initialPrice))
 
   // Validation rules
   // Utils: step/tick checks + display formatter
@@ -143,10 +167,12 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
               placeholder="Qty"
               value={qty}
               onChange={e => setQty(e.target.value)}
+              onBlur={() => setQtyHint(computeNearestQtyHint(qty))}
               style={{ ...inputBase, ...(errors.qty ? errorBorder : {}) }}
               disabled={isKill}
             />
             <div style={{ minHeight: 18, fontSize: 12, color: 'rgba(185,28,28,0.9)', marginTop: 4 }}>{errors.qty ?? ' '}</div>
+            <div style={{ minHeight: 16, fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{qtyHint ?? ' '}</div>
           </div>
 
           <div style={{ width: 120 }}>
@@ -154,10 +180,12 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
               placeholder="Price"
               value={price}
               onChange={e => setPrice(e.target.value)}
+              onBlur={() => setPriceHint(computeNearestPriceHint(price))}
               style={{ ...inputBase, ...(errors.price ? errorBorder : {}) }}
               disabled={isKill || isDowngrade}
             />
             <div style={{ minHeight: 18, fontSize: 12, color: 'rgba(185,28,28,0.9)', marginTop: 4 }}>{errors.price ?? ' '}</div>
+            <div style={{ minHeight: 16, fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{priceHint ?? ' '}</div>
           </div>
         </div>
 
