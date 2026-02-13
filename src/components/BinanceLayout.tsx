@@ -49,8 +49,10 @@ export const BinanceLayout: React.FC<Props> = ({ children }) => {
             </div>
 
             {/* Controls positioned outside of RiskBar visual flow to avoid border overlap */}
-            <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 80, maxWidth: 340, overflowX: 'auto' }}>
-              <DemoControls />
+            <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 80, maxWidth: 340, overflowX: 'hidden', display: 'flex', alignItems: 'center' }}>
+              <div style={{ paddingLeft: 12, borderLeft: '1px solid var(--border)', marginLeft: 8 }}>
+                <DemoControls />
+              </div>
             </div>
           </div>
         </header>
