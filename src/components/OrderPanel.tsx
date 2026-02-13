@@ -174,7 +174,7 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
           <div style={{ minHeight: 18, fontSize: 12, color: 'rgba(185,28,28,0.9)', marginTop: 4 }}>{errors.symbol ?? ' '}</div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 8, width: '100%' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, width: '100%' }}>
           <div style={{ minWidth: 0 }}>
             <input
               placeholder="Qty"
