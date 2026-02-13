@@ -1,6 +1,5 @@
 import React from 'react'
-
-type RiskMode = 'NORMAL' | 'WARN' | 'KILL' | 'DOWNGRADE'
+import { RiskMode } from '../types/risk'
 
 export interface GlobalRiskBarProps {
   mode?: RiskMode
@@ -123,90 +122,4 @@ export const GlobalRiskBar: React.FC<GlobalRiskBarProps> = ({
 }
 
 export default GlobalRiskBar
-"use client";
 
-import React from 'react';
-
-export type RiskMode = 'NORMAL' | 'WARN' | 'KILL' | 'DOWNGRADE';
-
-interface GlobalRiskBarProps {
-  mode: RiskMode;
-  message?: string;
-}
-
-export default function GlobalRiskBar({ mode, message }: GlobalRiskBarProps) {
-  const getBorderColor = () => {
-    switch (mode) {
-      case 'WARN':
-        return 'var(--warn)';
-      case 'KILL':
-        return 'var(--kill)';
-      case 'DOWNGRADE':
-        return 'var(--downgrade)';
-      default:
-        return 'var(--border)';
-    }
-  };
-
-  const getBackgroundColor = () => {
-    switch (mode) {
-      case 'WARN':
-        return 'rgba(245, 158, 11, 0.1)';
-      case 'KILL':
-        return 'rgba(185, 28, 28, 0.1)';
-      case 'DOWNGRADE':
-        return 'rgba(124, 58, 237, 0.1)';
-      default:
-        return 'transparent';
-    }
-  };
-
-  const getLabel = () => {
-    switch (mode) {
-      case 'WARN':
-        return 'WARNING';
-      case 'KILL':
-        return 'KILL SWITCH ACTIVE';
-      case 'DOWNGRADE':
-        return 'SYSTEM DOWNGRADE';
-      default:
-        return 'OPERATIONAL';
-    }
-  };
-
-  return (
-    <div
-      style={{
-        borderTop: `2px solid ${getBorderColor()}`,
-        borderBottom: `2px solid ${getBorderColor()}`,
-        backgroundColor: getBackgroundColor(),
-        padding: '8px 16px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        fontSize: '13px',
-        fontWeight: 600,
-        letterSpacing: '0.5px',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <span
-          style={{
-            color: getBorderColor(),
-            textTransform: 'uppercase',
-          }}
-        >
-          {getLabel()}
-        </span>
-        {message && (
-          <span style={{ color: 'var(--muted)', fontWeight: 400 }}>
-            {message}
-          </span>
-        )}
-      </div>
-      <div style={{ color: 'var(--muted)', fontSize: '11px' }}>
-        {new Date().toLocaleTimeString()}
-      </div>
-    </div>
-  );
-}

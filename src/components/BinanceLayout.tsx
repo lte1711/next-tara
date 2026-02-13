@@ -1,5 +1,7 @@
 import React from 'react'
 import GlobalRiskBar from './GlobalRiskBar'
+import OrderPanel from './OrderPanel'
+import { RiskMode, TradeLevel } from '../types/risk'
 
 interface Props {
   children?: React.ReactNode
@@ -25,7 +27,13 @@ export const BinanceLayout: React.FC<Props> = ({ children }) => {
             <div style={{ color: 'var(--muted)', fontSize: 12 }}>Institutional theme — High contrast</div>
           </div>
           <div style={{ minWidth: 320 }}>
-            <GlobalRiskBar />
+            {/* Dummy mode shared between RiskBar and OrderPanel (scaffold only) */}
+            {
+              (() => {
+                const mode: RiskMode = 'KILL' // change only in code, not at runtime
+                return <GlobalRiskBar mode={mode} pnl={123.45} drawdown={0.12} exposure={0.05} lastUpdate={new Date().toLocaleTimeString('ko-KR')} riskEngineActive={true} killArmed={true} />
+              })()
+            }
           </div>
         </header>
 
@@ -40,6 +48,10 @@ export const BinanceLayout: React.FC<Props> = ({ children }) => {
             </div>
             <div style={{ background: 'var(--panel2)', padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
               Positions / PnL placeholder
+            </div>
+            <div>
+              {/* OrderPanel receives same dummy mode and trade level */}
+              <OrderPanel mode={'KILL'} level={'L1_LIMITED'} reason={'Maintenance window: trading disabled'} />
             </div>
           </aside>
         </section>
