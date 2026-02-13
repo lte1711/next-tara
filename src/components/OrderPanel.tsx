@@ -52,8 +52,21 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
   // Local input state (client-rendered) with sensible defaults. For SSR evidence capture
   // the `initial*` props may be provided by the page temporarily.
   const [symbol, setSymbol] = useState<string>(initialSymbol)
-  const [qty, setQty] = useState<string>(initialQty)
-  const [price, setPrice] = useState<string>(initialPrice)
+  const [qtyInput, setQtyInput] = useState<string>(initialQty)
+  const [priceInput, setPriceInput] = useState<string>(initialPrice)
+  // Utils: step/tick checks + display formatter (declare before use)
+  const isMultipleOfStep = (value: number, step: number) => {
+    if (!isFinite(value) || !isFinite(step) || step === 0) return false
+    const ratio = value / step
+    const rounded = Math.round(ratio)
+    return Math.abs(ratio - rounded) < 1e-9
+  }
+
+  const formatNumber = (value: number, decimals: number) => {
+    if (!Number.isFinite(value)) return ''
+    return value.toFixed(decimals)
+  }
+
   // Hints shown below fields (always reserve space in DOM)
   const isMultipleOfStepLocal = isMultipleOfStep
   const computeNearestQtyHint = (valStr: string) => {
@@ -73,25 +86,27 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
     if (v <= 0) return ''
     if (isMultipleOfStepLocal(v, tick)) return ''
     const nearest = Math.round(v / tick) * tick
-    return `Nearest valid step: ${formatNumber(nearest, 2)}`
+    return `Nearest valid tick: ${formatNumber(nearest, 2)}`
   }
 
   const [qtyHint, setQtyHint] = useState<string>(() => computeNearestQtyHint(initialQty))
   const [priceHint, setPriceHint] = useState<string>(() => computeNearestPriceHint(initialPrice))
 
-  // Validation rules
-  // Utils: step/tick checks + display formatter
-  const isMultipleOfStep = (value: number, step: number) => {
-    if (!isFinite(value) || !isFinite(step) || step === 0) return false
-    const ratio = value / step
-    const rounded = Math.round(ratio)
-    return Math.abs(ratio - rounded) < 1e-9
-  }
+  // Parsed / formatted layers
+  const parsedQty = useMemo(() => {
+    const v = parseFloat((qtyInput ?? '').toString())
+    return Number.isFinite(v) ? v : NaN
+  }, [qtyInput])
 
-  const formatNumber = (value: number, decimals: number) => {
-    if (!Number.isFinite(value)) return ''
-    return value.toFixed(decimals)
-  }
+  const parsedPrice = useMemo(() => {
+    const v = parseFloat((priceInput ?? '').toString())
+    return Number.isFinite(v) ? v : NaN
+  }, [priceInput])
+
+  const formattedQty = useMemo(() => (Number.isFinite(parsedQty) ? formatNumber(parsedQty, 3) : ''), [parsedQty])
+  const formattedPrice = useMemo(() => (Number.isFinite(parsedPrice) ? formatNumber(parsedPrice, 2) : ''), [parsedPrice])
+
+  // Validation rules
 
   const errors = useMemo(() => {
     const e: { symbol?: string; qty?: string; price?: string; form?: string } = {}
@@ -106,10 +121,9 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
     // Qty rules
     const minQty = 0.001
     const qtyStep = 0.001
-    const qParsed = parseFloat((qty ?? '').toString())
-    if (qty === undefined || qty === null || (qty ?? '') === '') {
+    if (qtyInput === undefined || qtyInput === null || (qtyInput ?? '') === '') {
       e.qty = 'Qty must be ≥ 0.001 and in steps of 0.001.'
-    } else if (!Number.isFinite(qParsed) || qParsed < minQty || !isMultipleOfStep(qParsed, qtyStep)) {
+    } else if (!Number.isFinite(parsedQty) || parsedQty < minQty || !isMultipleOfStep(parsedQty, qtyStep)) {
       e.qty = 'Qty must be ≥ 0.001 and in steps of 0.001.'
     }
 
@@ -117,16 +131,15 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
     if (!isDowngrade) {
       const minPrice = 0.01
       const tickSize = 0.01
-      const pParsed = parseFloat((price ?? '').toString())
-      if (price === undefined || price === null || (price ?? '') === '') {
+      if (priceInput === undefined || priceInput === null || (priceInput ?? '') === '') {
         e.price = 'Price must be ≥ 0.01 and in ticks of 0.01.'
-      } else if (!Number.isFinite(pParsed) || pParsed < minPrice || !isMultipleOfStep(pParsed, tickSize)) {
+      } else if (!Number.isFinite(parsedPrice) || parsedPrice < minPrice || !isMultipleOfStep(parsedPrice, tickSize)) {
         e.price = 'Price must be ≥ 0.01 and in ticks of 0.01.'
       }
     }
 
     return e
-  }, [symbol, qty, price, isDowngrade])
+  }, [symbol, qtyInput, priceInput, isDowngrade])
 
   const hasErrors = Object.keys(errors).length > 0
   const canSubmit = !isKill && !hasErrors
@@ -165,9 +178,9 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
           <div style={{ flex: 1 }}>
             <input
               placeholder="Qty"
-              value={qty}
-              onChange={e => setQty(e.target.value)}
-              onBlur={() => setQtyHint(computeNearestQtyHint(qty))}
+              value={qtyInput}
+              onChange={e => setQtyInput(e.target.value)}
+              onBlur={() => setQtyHint(computeNearestQtyHint(qtyInput))}
               style={{ ...inputBase, ...(errors.qty ? errorBorder : {}) }}
               disabled={isKill}
             />
@@ -178,9 +191,9 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
           <div style={{ width: 120 }}>
             <input
               placeholder="Price"
-              value={price}
-              onChange={e => setPrice(e.target.value)}
-              onBlur={() => setPriceHint(computeNearestPriceHint(price))}
+              value={priceInput}
+              onChange={e => setPriceInput(e.target.value)}
+              onBlur={() => setPriceHint(computeNearestPriceHint(priceInput))}
               style={{ ...inputBase, ...(errors.price ? errorBorder : {}) }}
               disabled={isKill || isDowngrade}
             />
