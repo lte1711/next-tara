@@ -56,21 +56,49 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
   const [price, setPrice] = useState<string>(initialPrice)
 
   // Validation rules
+  // Utils: step/tick checks + display formatter
+  const isMultipleOfStep = (value: number, step: number) => {
+    if (!isFinite(value) || !isFinite(step) || step === 0) return false
+    const ratio = value / step
+    const rounded = Math.round(ratio)
+    return Math.abs(ratio - rounded) < 1e-9
+  }
+
+  const formatNumber = (value: number, decimals: number) => {
+    if (!Number.isFinite(value)) return ''
+    return value.toFixed(decimals)
+  }
+
   const errors = useMemo(() => {
     const e: { symbol?: string; qty?: string; price?: string; form?: string } = {}
-    const s = (symbol ?? '').trim()
-    if (!s) e.symbol = 'Symbol is required'
-    else if (s.length < 1 || s.length > 20) e.symbol = 'Symbol length 1–20'
 
-    const q = parseFloat((qty ?? '').toString())
-    if (qty === undefined || qty === null || (qty ?? '') === '') e.qty = 'Qty is required'
-    else if (!Number.isFinite(q) || q <= 0) e.qty = 'Qty must be a number > 0'
+    // Symbol normalization for validation
+    const sNorm = (symbol ?? '').trim().toUpperCase()
+    const symbolRegex = /^[A-Z0-9_-]+$/
+    if (!sNorm || sNorm.length < 2 || sNorm.length > 20 || !symbolRegex.test(sNorm)) {
+      e.symbol = 'Symbol must be 2–20 chars (A–Z, 0–9, _ or -).'
+    }
 
-    // Price validation only applies when price is enabled (not DOWNGRADE)
+    // Qty rules
+    const minQty = 0.001
+    const qtyStep = 0.001
+    const qParsed = parseFloat((qty ?? '').toString())
+    if (qty === undefined || qty === null || (qty ?? '') === '') {
+      e.qty = 'Qty must be ≥ 0.001 and in steps of 0.001.'
+    } else if (!Number.isFinite(qParsed) || qParsed < minQty || !isMultipleOfStep(qParsed, qtyStep)) {
+      e.qty = 'Qty must be ≥ 0.001 and in steps of 0.001.'
+    }
+
+    // Price rules (skip validation when DOWNGRADE)
     if (!isDowngrade) {
-      const p = parseFloat((price ?? '').toString())
-      if (price === undefined || price === null || (price ?? '') === '') e.price = 'Price is required'
-      else if (!Number.isFinite(p) || p <= 0) e.price = 'Price must be a number > 0'
+      const minPrice = 0.01
+      const tickSize = 0.01
+      const pParsed = parseFloat((price ?? '').toString())
+      if (price === undefined || price === null || (price ?? '') === '') {
+        e.price = 'Price must be ≥ 0.01 and in ticks of 0.01.'
+      } else if (!Number.isFinite(pParsed) || pParsed < minPrice || !isMultipleOfStep(pParsed, tickSize)) {
+        e.price = 'Price must be ≥ 0.01 and in ticks of 0.01.'
+      }
     }
 
     return e
