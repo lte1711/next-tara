@@ -35,3 +35,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# --- UI evidence artifacts (do not commit) ---
+logs/*.html
+logs/*.zip
+logs/ui_institutional*.html
+logs/UI_*_SSR_EVIDENCE.zip
+
+# keep README txt if needed, but ignore generated archives in evidence
+evidence/ui/*.zip
