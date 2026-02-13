@@ -19,18 +19,17 @@ export const DemoControls: React.FC = () => {
   const { pauseOnKill, setPauseOnKill, reset } = useRisk()
 
   return (
-    <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 60 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: 'var(--panel)', padding: 8, borderRadius: 8, border: '1px solid var(--border)', boxShadow: 'none' }}>
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: 'var(--panel)', padding: 8, borderRadius: 8, border: '1px solid var(--border)', boxShadow: 'none', flexWrap: 'nowrap', whiteSpace: 'nowrap', overflowX: 'auto', minHeight: 40 }}>
         <div style={{ display: 'flex', gap: 6 }}>
           <button
-            style={{ ...buttonBase, fontWeight: demoMode === 'AUTO' ? 700 : 400 }}
+            style={{ ...buttonBase, fontWeight: demoMode === 'AUTO' ? 700 : 400, flexShrink: 0, whiteSpace: 'nowrap' }}
             onClick={() => setDemoMode('AUTO')}
             aria-pressed={demoMode === 'AUTO'}
           >
             Auto
           </button>
           <button
-            style={{ ...buttonBase, fontWeight: demoMode === 'MANUAL' ? 700 : 400 }}
+            style={{ ...buttonBase, fontWeight: demoMode === 'MANUAL' ? 700 : 400, flexShrink: 0, whiteSpace: 'nowrap' }}
             onClick={() => setDemoMode('MANUAL')}
             aria-pressed={demoMode === 'MANUAL'}
           >
@@ -50,7 +49,7 @@ export const DemoControls: React.FC = () => {
             <input type="checkbox" checked={pauseOnKill} onChange={(e) => setPauseOnKill(e.target.checked)} />
             <span>Pause on KILL</span>
           </label>
-          <button style={{ ...buttonBase }} onClick={() => reset()}>Reset</button>
+          <button style={{ ...buttonBase, flexShrink: 0, whiteSpace: 'nowrap' }} onClick={() => reset()}>Reset</button>
         </div>
 
         <div style={{ display: 'flex', gap: 6 }}>
@@ -86,14 +85,14 @@ export const DemoControls: React.FC = () => {
 
         <div style={{ display: 'flex', gap: 6 }}>
           <button
-            style={{ ...buttonBase, fontSize: 11 }}
+            style={{ ...buttonBase, fontSize: 11, flexShrink: 0, whiteSpace: 'nowrap' }}
             onClick={() => setIntervalMs(5000)}
             aria-pressed={intervalMs === 5000}
           >
             5s
           </button>
           <button
-            style={{ ...buttonBase, fontSize: 11 }}
+            style={{ ...buttonBase, fontSize: 11, flexShrink: 0, whiteSpace: 'nowrap' }}
             onClick={() => setIntervalMs(8000)}
             aria-pressed={intervalMs === 8000}
           >
