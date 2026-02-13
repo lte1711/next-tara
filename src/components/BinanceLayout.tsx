@@ -29,7 +29,7 @@ export const BinanceLayout: React.FC<Props> = ({ children }) => {
       </aside>
 
       <main style={{ flex: 1, padding: 16 }}>
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, position: 'relative', paddingRight: 380 }}>
           <div>
             <h1 style={{ margin: 0 }}>Binance View (Scaffold)</h1>
             <div style={{ color: 'var(--muted)', fontSize: 12 }}>Institutional theme — High contrast</div>
@@ -49,7 +49,7 @@ export const BinanceLayout: React.FC<Props> = ({ children }) => {
             </div>
 
             {/* Controls positioned outside of RiskBar visual flow to avoid border overlap */}
-            <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 60, maxWidth: 'calc(100% - 24px)' }}>
+            <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 80, maxWidth: 340, overflowX: 'auto' }}>
               <DemoControls />
             </div>
           </div>
