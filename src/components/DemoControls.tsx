@@ -15,6 +15,9 @@ const buttonBase: React.CSSProperties = {
 export const DemoControls: React.FC = () => {
   const { demoMode, setDemoMode, paused, setPaused, manualMode, setManualMode, intervalMs, setIntervalMs } = useRisk()
 
+  // optional stability features
+  const { pauseOnKill, setPauseOnKill, reset } = useRisk()
+
   return (
     <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 60 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: 'var(--panel)', padding: 8, borderRadius: 8, border: '1px solid var(--border)', boxShadow: 'none' }}>
@@ -35,7 +38,7 @@ export const DemoControls: React.FC = () => {
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <button
             style={{ ...buttonBase }}
             onClick={() => setPaused(p => !p)}
@@ -43,6 +46,11 @@ export const DemoControls: React.FC = () => {
           >
             {paused ? 'Resume' : 'Pause'}
           </button>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
+            <input type="checkbox" checked={pauseOnKill} onChange={(e) => setPauseOnKill(e.target.checked)} />
+            <span>Pause on KILL</span>
+          </label>
+          <button style={{ ...buttonBase }} onClick={() => reset()}>Reset</button>
         </div>
 
         <div style={{ display: 'flex', gap: 6 }}>
@@ -91,6 +99,11 @@ export const DemoControls: React.FC = () => {
           >
             8s
           </button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', marginLeft: 8 }}>
+          <div style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)' }}>
+            {demoMode} {paused ? '· PAUSED' : ''}
+          </div>
         </div>
       </div>
     </div>
