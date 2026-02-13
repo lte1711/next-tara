@@ -44,3 +44,6 @@ logs/UI_*_SSR_EVIDENCE.zip
 
 # keep README txt if needed, but ignore generated archives in evidence
 evidence/ui/*.zip
+
+# ignore local logs directory (UI evidence + dev logs)
+logs/
