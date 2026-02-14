@@ -1,0 +1,18 @@
+﻿# NEXT-TRADE Dependencies
+ccxt==4.5.35
+reportlab==4.0.7
+flask==3.0.0
+requests==2.31.0
+websockets==12.0
+fastapi==0.109.0
+uvicorn==0.27.0
+jinja2==3.1.2
+
+# Alpaca broker integration
+alpaca-py==0.21.0
+
+# PHASE 24-5: Local Toast Alerts
+win10toast-click>=0.1.2
+
+# PHASE 12: Production Hardening
+redis>=7.0.0
