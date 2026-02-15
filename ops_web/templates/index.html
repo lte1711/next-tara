@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NEXT-TRADE Ops Dashboard</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { font-family: Arial, sans-serif; margin: 0; background: #0f1216; color: #e6edf3; }
+    header { padding: 16px 20px; border-bottom: 1px solid #222; }
+    main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; }
+    .card { background: #151a21; border: 1px solid #222; border-radius: 8px; padding: 12px; }
+    .title { font-size: 14px; color: #9fb3c8; margin-bottom: 8px; }
+    .value { font-size: 20px; font-weight: bold; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    pre { white-space: pre-wrap; background: #0b0e12; padding: 10px; border-radius: 6px; border: 1px solid #222; height: 320px; overflow: auto; }
+    .meta { font-size: 12px; color: #8b949e; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title">NEXT-TRADE Ops Dashboard (MVP)</div>
+    <div class="meta">SSE live metrics + log tail</div>
+  </header>
+  <main>
+    <section class="card">
+      <div class="title">Latest Metrics</div>
+      <div class="grid">
+        <div>
+          <div class="title">elapsed_sec</div>
+          <div class="value" id="elapsed">-</div>
+        </div>
+        <div>
+          <div class="title">ticks</div>
+          <div class="value" id="ticks">-</div>
+        </div>
+        <div>
+          <div class="title">ws_messages_total</div>
+          <div class="value" id="ws">-</div>
+        </div>
+        <div>
+          <div class="title">event_published</div>
+          <div class="value" id="pub">-</div>
+        </div>
+        <div>
+          <div class="title">event_consumed</div>
+          <div class="value" id="con">-</div>
+        </div>
+        <div>
+          <div class="title">event_queue_depth</div>
+          <div class="value" id="depth">-</div>
+        </div>
+        <div>
+          <div class="title">depth_max_seen</div>
+          <div class="value" id="depthMax">-</div>
+        </div>
+        <div>
+          <div class="title">kill_switch</div>
+          <div class="value" id="kill">-</div>
+        </div>
+      </div>
+      <div class="meta" id="updated">Last update: -</div>
+    </section>
+    <section class="card">
+      <div class="title">Raw Metrics (latest)</div>
+      <pre id="raw">waiting...</pre>
+    </section>
+    <section class="card" style="grid-column: span 2;">
+      <div class="title">Log Tail (latest log)</div>
+      <pre id="logTail">loading...</pre>
+    </section>
+  </main>
+
+  <script>
+    const byId = (id) => document.getElementById(id);
+    const evt = new EventSource('/events');
+
+    evt.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        byId('raw').textContent = e.data;
+        byId('elapsed').textContent = data.elapsed_sec ?? '-';
+        byId('ticks').textContent = data.ticks ?? '-';
+        byId('ws').textContent = data.ws_messages_total ?? '-';
+        byId('pub').textContent = data.event_published ?? '-';
+        byId('con').textContent = data.event_consumed ?? '-';
+        byId('depth').textContent = data.event_queue_depth ?? '-';
+        byId('depthMax').textContent = data.event_queue_depth_max_seen ?? '-';
+        byId('kill').textContent = data.kill_switch ?? '-';
+        byId('updated').textContent = `Last update: ${new Date().toLocaleTimeString()}`;
+      } catch (err) {
+        byId('raw').textContent = `parse error: ${err}`;
+      }
+    };
+
+    async function refreshLogTail() {
+      try {
+        const res = await fetch('/log-tail?lines=80');
+        const text = await res.text();
+        byId('logTail').textContent = text;
+      } catch (err) {
+        byId('logTail').textContent = `log tail error: ${err}`;
+      }
+    }
+
+    refreshLogTail();
+    setInterval(refreshLogTail, 5000);
+  </script>
+</body>
+</html>
