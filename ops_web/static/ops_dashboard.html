@@ -55,17 +55,152 @@ const BASE = location.origin;
 function setCard(id, val) { $(id).textContent = (val === undefined || val === null) ? "—" : String(val); }
 function nowIso() { return new Date().toISOString(); }
 
+// OVL-002 data structures
+const MAX_BUFFER = 500;
+const eventsBuffer = [];
+const groupsByTrace = new Map();
+const observedTypes = new Set();
+
+// UI controls (insert controls row)
+const controls = document.createElement('div');
+controls.style.marginTop = '10px';
+controls.innerHTML = `
+  <label class="k">Type:</label>
+  <select id="typeFilter" style="margin-right:10px"><option value="">(all)</option></select>
+  <label class="k">Trace:</label>
+  <input id="traceSearch" placeholder="trace_id or substring" style="margin-right:10px" />
+  <button id="exportBtn">Export JSON</button>
+`;
+document.querySelector('body > .row').parentNode.insertBefore(controls, document.querySelector('.row'));
+
+const typeFilter = () => $("typeFilter").value;
+const traceQuery = () => $("traceSearch").value.trim().toLowerCase();
+
+function updateTypeOptions() {
+  const sel = $("typeFilter");
+  const existing = new Set(Array.from(sel.options).map(o => o.value));
+  observedTypes.forEach(t => {
+    if (!existing.has(t)) {
+      const o = document.createElement('option'); o.value = t; o.textContent = t; sel.appendChild(o);
+    }
+  });
+}
+
+function handleEvent(raw) {
+  let obj;
+  try { obj = JSON.parse(raw); } catch (e) { obj = { raw }; }
+  const evt = {
+    ts: obj.ts || nowIso(),
+    trace_id: obj.trace_id || obj.traceId || (obj.trace || 'unknown'),
+    type: obj.type || obj.event_type || 'event',
+    source: obj.source || obj.src || '',
+    payload: obj,
+  };
+
+  // buffer
+  eventsBuffer.push(evt);
+  if (eventsBuffer.length > MAX_BUFFER) eventsBuffer.shift();
+
+  // groups
+  const tid = String(evt.trace_id || '');
+  let g = groupsByTrace.get(tid);
+  if (!g) {
+    g = { trace_id: tid, first_ts: evt.ts, last_ts: evt.ts, count: 0, types: new Set(), events: [] };
+    groupsByTrace.set(tid, g);
+  }
+  g.events.push(evt);
+  if (g.events.length > 200) g.events.shift();
+  g.count = g.events.length;
+  g.last_ts = evt.ts;
+  if (!g.first_ts) g.first_ts = evt.ts;
+  g.types.add(evt.type);
+
+  observedTypes.add(evt.type);
+  updateTypeOptions();
+
+  renderGroups();
+  renderRawTail();
+}
+
+function renderGroups() {
+  const eventsDiv = $("events");
+  const selectedType = typeFilter();
+  const q = traceQuery();
+
+  const groups = Array.from(groupsByTrace.values())
+    .filter(g => {
+      if (selectedType && !g.types.has(selectedType)) return false;
+      if (q && !g.trace_id.toLowerCase().includes(q)) return false;
+      return true;
+    })
+    .sort((a,b) => (b.last_ts || '') > (a.last_ts || '') ? 1 : -1);
+
+  let html = '';
+  groups.forEach(g => {
+    const repType = Array.from(g.types)[0] || '-';
+    const shortTid = g.trace_id ? g.trace_id.slice(0,8) : '(none)';
+    html += `<div class="card" style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div><b>${shortTid}</b> <span class="k">${g.trace_id}</span></div>
+        <div class="k">${g.first_ts} → ${g.last_ts} · ${g.count} events · ${repType}</div>
+      </div>
+      <div style="margin-top:8px; font-size:12px; max-height:200px; overflow:auto; background:#fafafa; padding:6px;">${g.events.map(e=>`<div style="border-bottom:1px solid #eee;padding:4px 0"><span class="k">${e.ts}</span> <b>${e.type}</b> ${e.payload.message ? '- ' + (e.payload.message) : ''}</div>`).join('')}</div>
+    </div>`;
+  });
+
+  if (!html) html = '<div class="k">(no groups)</div>';
+  eventsDiv.innerHTML = html;
+}
+
+function renderRawTail() {
+  const out = $("metrics");
+  // show last 50 raw events for debug
+  const raw = eventsBuffer.slice(-50).map(e => ({ ts: e.ts, trace_id: e.trace_id, type: e.type, source: e.source }));
+  // do not overwrite metrics panel JSON, but show raw below it
+  const rawElId = 'rawTail';
+  let rawEl = document.getElementById(rawElId);
+  if (!rawEl) {
+    rawEl = document.createElement('pre'); rawEl.id = rawElId; rawEl.style.marginTop = '10px'; rawEl.className = 'mono';
+    out.parentNode.appendChild(rawEl);
+  }
+  rawEl.textContent = JSON.stringify(raw, null, 2);
+}
+
+// export current filtered eventsBuffer
+function exportJSON() {
+  const selectedType = typeFilter();
+  const q = traceQuery();
+  const filtered = eventsBuffer.filter(e => {
+    if (selectedType && e.type !== selectedType) return false;
+    if (q && !(String(e.trace_id || '').toLowerCase().includes(q))) return false;
+    return true;
+  });
+  const payload = { exported_at: nowIso(), count: filtered.length, events: filtered };
+  const name = `ops_events_${new Date().toISOString().replace(/[:.]/g,'')}.json`;
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+
+// wire controls
+document.addEventListener('DOMContentLoaded', () => {
+  const typeSel = $("typeFilter");
+  const trIn = $("traceSearch");
+  const exBtn = $("exportBtn");
+  typeSel.addEventListener('change', renderGroups);
+  trIn.addEventListener('input', renderGroups);
+  exBtn.addEventListener('click', exportJSON);
+});
+
 async function pollMetrics() {
   try {
     const r = await fetch(`${BASE}/api/ops/metrics`, { cache: "no-store" });
     const j = await r.json();
 
-    // 안전: 필드명이 바뀌어도 최소 표시
     setCard("drop", j.drop_count ?? j.dropCount ?? "—");
     setCard("subs", j.subscribers ?? j.subs ?? "—");
     setCard("qmax", j.queue_maxsize ?? j.qmax ?? j.bus_qmax ?? (j.config?.queue_maxsize ?? "—"));
 
-    // health/risk/killsw가 아직 없으면 기본값
     setCard("health", j.health ?? "OK");
     setCard("risk", j.risk_level ?? j.risk ?? "NORMAL");
     setCard("killsw", j.kill_switch ?? j.killswitch ?? "OFF");
@@ -79,18 +214,10 @@ async function pollMetrics() {
 
 function startSSE() {
   const es = new EventSource(`${BASE}/events`);
-  $("sseStatus").textContent = "connected";
-
-  es.onmessage = (ev) => {
-    // 최근 200줄만 유지
-    const line = `[${nowIso()}] ${ev.data}\n`;
-    const cur = $("events").textContent + line;
-    const lines = cur.split("\n");
-    $("events").textContent = lines.slice(-200).join("\n");
-  };
-  es.onerror = () => {
-    $("sseStatus").textContent = "error/reconnecting…";
-  };
+  $("sseStatus").textContent = "connecting…";
+  es.onopen = () => { $("sseStatus").textContent = "connected"; };
+  es.onmessage = (ev) => { handleEvent(ev.data); };
+  es.onerror = () => { $("sseStatus").textContent = "error/reconnecting…"; };
 }
 
 pollMetrics();
