@@ -308,6 +308,25 @@ class BinanceTestnetAdapter(BaseExchangeAdapter):
                 self._maybe_dynamic_kill(ms)
             except Exception:
                 pass
+
+    def _send_request_simple(self, method: str, url: str, data: bytes | None = None, headers: dict | None = None, timeout_s: float = 10.0) -> dict:
+        """Minimal helper: build a Request and return parsed JSON dict.
+
+        This keeps existing `_send_request(Request, timeout_s)` behavior untouched
+        while allowing simple callsites to use method/url/data/headers.
+        """
+        hdrs = headers or {}
+        if data is not None:
+            req = Request(url, data=data, headers=hdrs, method=method)
+        else:
+            req = Request(url, headers=hdrs, method=method)
+
+        resp_bytes = self._send_request(req, timeout_s=timeout_s)
+        try:
+            return json.loads(resp_bytes.decode("utf-8"))
+        except Exception:
+            # propagate original bytes error as a simple dict wrapper
+            raise
     
     async def place_order(self, req: PlaceOrderRequest) -> PlaceOrderResult:
         """
@@ -369,10 +388,11 @@ class BinanceTestnetAdapter(BaseExchangeAdapter):
         
         # Signature: HMAC-SHA256 of request body
         query_string = urlencode(params)
-                        signature = hmac.new(
-                    self.binance_sk.encode(),
+
+        signature = hmac.new(
+            self.binance_sk.encode(),
             query_string.encode(),
-            hashlib.sha256
+            hashlib.sha256,
         ).hexdigest()
         
         params["signature"] = signature
@@ -529,18 +549,15 @@ class BinanceTestnetAdapter(BaseExchangeAdapter):
         url = f"{self.TESTNET_BASE_URL}/api/v3/openOrders?{full_query}"
 
         try:
-                request = Request(
-                url,
-                method="DELETE",
-                headers={"X-MBX-APIKEY": self.binance_k}
-            )
-            
-            with urlopen(request, timeout=10) as response:
-                res_data = json.loads(response.read().decode("utf-8"))
+            try:
+                res = self._send_request_simple("DELETE", url, headers={"X-MBX-APIKEY": self.binance_k}, timeout_s=10)
                 logger.info("BinanceTestnetAdapter: Emergency CANCEL_ALL success | symbol=%s", symbol)
                 return True
+            except Exception as e:
+                logger.error("BinanceTestnetAdapter: Emergency CANCEL_ALL FAILED | symbol=%s | err=%s", symbol, e)
+                return False
         except Exception as e:
-            logger.error("BinanceTestnetAdapter: Emergency CANCEL_ALL FAILED | symbol=%s | err=%s", symbol, e)
+            logger.error("BinanceTestnetAdapter: Emergency CANCEL_ALL FAILED (outer) | symbol=%s | err=%s", symbol, e)
             return False
 
     async def get_health(self) -> ExchangeHealth:
@@ -574,12 +591,10 @@ class BinanceTestnetAdapter(BaseExchangeAdapter):
             # GET /fapi/v2/account
             def _server_time_ms():
                 turl = REST_BASE.rstrip("/") + "/fapi/v1/time"
-                req = Request(turl, method="GET")
                 try:
-                    resp_bytes = self._send_request(req, timeout_s=3)
-                    d = json.loads(resp_bytes.decode("utf-8"))
+                    d = self._send_request_simple("GET", turl, headers=None, timeout_s=3)
                     return int(d["serverTime"])
-                except Exception as ex:
+                except Exception:
                     raise
 
             def _sync_time_offset_ms(force: bool = False) -> int:
@@ -745,9 +760,7 @@ class BinanceTestnetAdapter(BaseExchangeAdapter):
                     try:
                         # minimal ticker call
                         ticker_url = f"{self.TESTNET_BASE_URL}/api/v3/ticker/price?symbol=BTCUSDT"
-                        req = Request(ticker_url, method="GET")
-                        tr_bytes = self._send_request(req, timeout_s=3)
-                        t_data = json.loads(tr_bytes.decode())
+                        t_data = self._send_request_simple("GET", ticker_url, headers=None, timeout_s=3)
                         price = float(t_data.get("price", 0))
                         btc_value = btc_balance * price
                     except Exception as te:
