@@ -13,7 +13,15 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, Optional, Set
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse, JSONResponse
+from fastapi.responses import (
+    HTMLResponse,
+    StreamingResponse,
+    PlainTextResponse,
+    JSONResponse,
+    FileResponse,
+    RedirectResponse,
+)
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 
@@ -107,7 +115,17 @@ class BroadcastBus:
                 pass
 
 
-bus = BroadcastBus()
+import os
+
+# queue maxsize can be controlled via OPS_BUS_QMAX env var for testing
+try:
+    _qmax = int(os.environ.get("OPS_BUS_QMAX", "200"))
+except Exception:
+    _qmax = 200
+bus = BroadcastBus(queue_maxsize=_qmax)
+
+# For testing: keep references to intentionally-hung subscribers (do not consume)
+HUNG_SUBS: list[asyncio.Queue] = []
 
 _file_publisher_task: Optional[asyncio.Task] = None
 
@@ -138,6 +156,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, title="NEXT-TRADE Ops Web")
+
+# static files for ops dashboard
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+try:
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+@app.get("/ops")
+async def ops_dashboard():
+    p = STATIC_DIR / "ops_dashboard.html"
+    if p.exists():
+        return FileResponse(str(p))
+    return RedirectResponse(url="/")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 METRICS_FILE = BASE_DIR / "metrics" / "live_obs.jsonl"
@@ -318,3 +351,30 @@ async def log_tail(lines: int = 50) -> PlainTextResponse:
 @app.get("/health")
 async def health() -> JSONResponse:
     return JSONResponse({"status": "ok"})
+
+
+@app.post("/api/ops/hang-sub")
+async def hang_subscribe() -> JSONResponse:
+    """Create a hanging subscriber (for testing backpressure)."""
+    try:
+        q = await bus.subscribe()
+        HUNG_SUBS.append(q)
+        return JSONResponse({"status": "ok", "hung_subs": len(HUNG_SUBS)})
+    except Exception:
+        return JSONResponse({"status": "error"}, status_code=500)
+
+
+@app.post("/api/ops/clear-hung-subs")
+async def clear_hung_subs() -> JSONResponse:
+    try:
+        cnt = 0
+        while HUNG_SUBS:
+            q = HUNG_SUBS.pop()
+            try:
+                await bus.unsubscribe(q)
+            except Exception:
+                pass
+            cnt += 1
+        return JSONResponse({"status": "ok", "cleared": cnt})
+    except Exception:
+        return JSONResponse({"status": "error"}, status_code=500)

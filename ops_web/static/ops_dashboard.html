@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NEXT-TRADE OPS Dashboard (OVL-001)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(6, minmax(140px, 1fr)); gap: 10px; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+    .k { font-size: 12px; color: #666; }
+    .v { font-size: 20px; font-weight: 700; margin-top: 4px; }
+    .row { display: flex; gap: 10px; margin-top: 12px; }
+    .panel { flex: 1; border: 1px solid #ddd; border-radius: 10px; padding: 10px; min-height: 380px; }
+    .hdr { display: flex; align-items: baseline; justify-content: space-between; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+    #events { white-space: pre-wrap; line-height: 1.35; }
+    .pill { padding: 2px 8px; border-radius: 999px; border: 1px solid #ddd; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h2 style="margin:0">OPS Dashboard <span class="pill">OVL-001</span></h2>
+  <div class="k">Real-time: SSE <span class="mono">/events</span> · Metrics: <span class="mono">/api/ops/metrics</span></div>
+
+  <div class="grid" style="margin-top:12px">
+    <div class="card"><div class="k">HEALTH</div><div id="health" class="v">—</div></div>
+    <div class="card"><div class="k">KILL-SWITCH</div><div id="killsw" class="v">—</div></div>
+    <div class="card"><div class="k">RISK</div><div id="risk" class="v">—</div></div>
+    <div class="card"><div class="k">DROP COUNT</div><div id="drop" class="v">—</div></div>
+    <div class="card"><div class="k">SUBSCRIBERS</div><div id="subs" class="v">—</div></div>
+    <div class="card"><div class="k">BUS QMAX</div><div id="qmax" class="v">—</div></div>
+  </div>
+
+  <div class="row">
+    <div class="panel">
+      <div class="hdr">
+        <div><b>Event Timeline</b> <span class="k">(SSE)</span></div>
+        <div class="k">status: <span id="sseStatus" class="mono">connecting…</span></div>
+      </div>
+      <div id="events" class="mono" style="margin-top:10px"></div>
+    </div>
+    <div class="panel">
+      <div class="hdr">
+        <div><b>Metrics Snapshot</b></div>
+        <div class="k">last: <span id="lastTs" class="mono">—</span></div>
+      </div>
+      <div id="metrics" class="mono" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const BASE = location.origin;
+
+function setCard(id, val) { $(id).textContent = (val === undefined || val === null) ? "—" : String(val); }
+function nowIso() { return new Date().toISOString(); }
+
+async function pollMetrics() {
+  try {
+    const r = await fetch(`${BASE}/api/ops/metrics`, { cache: "no-store" });
+    const j = await r.json();
+
+    // 안전: 필드명이 바뀌어도 최소 표시
+    setCard("drop", j.drop_count ?? j.dropCount ?? "—");
+    setCard("subs", j.subscribers ?? j.subs ?? "—");
+    setCard("qmax", j.queue_maxsize ?? j.qmax ?? j.bus_qmax ?? (j.config?.queue_maxsize ?? "—"));
+
+    // health/risk/killsw가 아직 없으면 기본값
+    setCard("health", j.health ?? "OK");
+    setCard("risk", j.risk_level ?? j.risk ?? "NORMAL");
+    setCard("killsw", j.kill_switch ?? j.killswitch ?? "OFF");
+
+    $("metrics").textContent = JSON.stringify(j, null, 2);
+    $("lastTs").textContent = nowIso();
+  } catch (e) {
+    $("metrics").textContent = `METRICS_ERROR: ${e.message}`;
+  }
+}
+
+function startSSE() {
+  const es = new EventSource(`${BASE}/events`);
+  $("sseStatus").textContent = "connected";
+
+  es.onmessage = (ev) => {
+    // 최근 200줄만 유지
+    const line = `[${nowIso()}] ${ev.data}\n`;
+    const cur = $("events").textContent + line;
+    const lines = cur.split("\n");
+    $("events").textContent = lines.slice(-200).join("\n");
+  };
+  es.onerror = () => {
+    $("sseStatus").textContent = "error/reconnecting…";
+  };
+}
+
+pollMetrics();
+setInterval(pollMetrics, 1500);
+startSSE();
+</script>
+</body>
+</html>
