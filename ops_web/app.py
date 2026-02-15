@@ -1,26 +1,149 @@
+
 from __future__ import annotations
 
 import asyncio
 import json
 import uuid
+import contextlib
+import time
+import logging
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Dict, Optional, Set
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
-app = FastAPI(title="NEXT-TRADE Ops Web")
+
+# --- Broadcast bus (safe subscribe/unsubscribe/shutdown) ---
+
+
+class BroadcastBus:
+    def __init__(self, queue_maxsize: int = 200):
+        self._subs: Set[asyncio.Queue] = set()
+        self._lock = asyncio.Lock()
+        self._closed = False
+        self._queue_maxsize = queue_maxsize
+        # backpressure metrics
+        self._drop_count = 0
+        self._last_drop_ts = 0.0
+
+    async def subscribe(self) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue(maxsize=self._queue_maxsize)
+        async with self._lock:
+            if self._closed:
+                # already closed: push sentinel and return
+                try:
+                    q.put_nowait(None)
+                except Exception:
+                    pass
+                return q
+            self._subs.add(q)
+        return q
+
+    async def unsubscribe(self, q: asyncio.Queue) -> None:
+        async with self._lock:
+            if q in self._subs:
+                self._subs.remove(q)
+        try:
+            q.put_nowait(None)
+        except Exception:
+            pass
+
+    async def publish(self, event: Dict[str, Any]) -> None:
+        async with self._lock:
+            if self._closed:
+                return
+            subs = list(self._subs)
+
+        for q in subs:
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                # backpressure: count and sample-log (do not spam)
+                try:
+                    self._drop_count += 1
+                    now = time.time()
+                    if now - self._last_drop_ts > 5:
+                        self._last_drop_ts = now
+                        # use logger; fall back to print
+                        try:
+                            logging.getLogger("ops_web").warning(
+                                f"Backpressure drop occurred. total_drop={self._drop_count}"
+                            )
+                        except Exception:
+                            print(f"[WARN] Backpressure drop occurred. total_drop={self._drop_count}")
+                        # append a sampled backpressure event to metrics file for observability
+                        try:
+                            mf = Path(__file__).resolve().parent.parent / "metrics" / "live_obs.jsonl"
+                            mf.parent.mkdir(parents=True, exist_ok=True)
+                            with mf.open("a", encoding="utf-8") as mfh:
+                                bp = {
+                                    "ts": datetime.utcnow().isoformat() + "Z",
+                                    "type": "backpressure-drop",
+                                    "drop_count": self._drop_count,
+                                }
+                                mfh.write(json.dumps(bp, ensure_ascii=False) + "\n")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                continue
+            except Exception:
+                continue
+
+    async def shutdown(self) -> None:
+        async with self._lock:
+            self._closed = True
+            subs = list(self._subs)
+            self._subs.clear()
+
+        for q in subs:
+            try:
+                q.put_nowait(None)
+            except Exception:
+                pass
+
+
+bus = BroadcastBus()
+
+_file_publisher_task: Optional[asyncio.Task] = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _file_publisher_task
+    # startup: start optional metrics file tailer task
+    try:
+        _file_publisher_task = asyncio.create_task(_metrics_file_publisher())
+    except Exception:
+        _file_publisher_task = None
+    try:
+        yield
+    finally:
+        # cancel background task
+        try:
+            if _file_publisher_task:
+                _file_publisher_task.cancel()
+                with contextlib.suppress(Exception):
+                    await _file_publisher_task
+        except Exception:
+            pass
+        # shutdown bus to wake subscribers
+        try:
+            await bus.shutdown()
+        except Exception:
+            pass
+
+
+app = FastAPI(lifespan=lifespan, title="NEXT-TRADE Ops Web")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 METRICS_FILE = BASE_DIR / "metrics" / "live_obs.jsonl"
 LOG_DIR = BASE_DIR / "logs"
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
-
-# --- Simple in-memory publish/subscribe broadcaster ---
-SUBSCRIBERS: set[asyncio.Queue] = set()
 
 
 def _latest_log_file() -> Optional[Path]:
@@ -45,19 +168,11 @@ def _tail_lines(path: Path, n: int = 50) -> str:
 
 
 async def _publish(event: dict) -> None:
-    """Fan-out event to all in-memory subscribers (non-blocking)."""
-    dead = []
-    for q in list(SUBSCRIBERS):
-        try:
-            q.put_nowait(event)
-        except Exception:
-            # If queue is unusable, mark for removal
-            dead.append(q)
-    for q in dead:
-        try:
-            SUBSCRIBERS.discard(q)
-        except Exception:
-            pass
+    """Compatibility wrapper: publish via bus."""
+    try:
+        await bus.publish(event)
+    except Exception:
+        pass
 
 
 async def _metrics_file_publisher() -> None:
@@ -79,25 +194,14 @@ async def _metrics_file_publisher() -> None:
                             payload = json.loads(current)
                         except Exception:
                             payload = {"raw": current}
-                        await _publish(payload)
+                        await bus.publish(payload)
         except Exception:
             # ignore and continue
             pass
         await asyncio.sleep(2)
 
 
-async def _sse_generator(q: asyncio.Queue) -> AsyncGenerator[str, None]:
-    try:
-        while True:
-            try:
-                event = await asyncio.wait_for(q.get(), timeout=15)
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            except asyncio.TimeoutError:
-                # keepalive comment to prevent proxies from closing connection
-                yield ": keepalive\n\n"
-    finally:
-        # cleanup handled by caller
-        return
+# (SSE generator inlined into /events handler to guarantee unsubscribe in finally)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -107,17 +211,23 @@ async def index(request: Request) -> HTMLResponse:
 
 @app.get("/events")
 async def events() -> StreamingResponse:
-    """SSE endpoint backed by in-memory broadcaster."""
-    q: asyncio.Queue = asyncio.Queue()
-    SUBSCRIBERS.add(q)
+    """SSE endpoint using BroadcastBus.subscribe/unsubscribe."""
+    q: asyncio.Queue = await bus.subscribe()
 
     async def _stream():
         try:
-            async for chunk in _sse_generator(q):
-                yield chunk
+            while True:
+                try:
+                    item = await asyncio.wait_for(q.get(), timeout=15)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                if item is None:
+                    break
+                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
         finally:
             try:
-                SUBSCRIBERS.discard(q)
+                await bus.unsubscribe(q)
             except Exception:
                 pass
 
@@ -127,20 +237,25 @@ async def events() -> StreamingResponse:
 @app.websocket("/ws/events")
 async def ws_events(ws: WebSocket):
     await ws.accept()
-    q: asyncio.Queue = asyncio.Queue()
-    SUBSCRIBERS.add(q)
+    q: asyncio.Queue = await bus.subscribe()
     try:
         while True:
-            event = await q.get()
+            item = await q.get()
+            if item is None:
+                break
             try:
-                await ws.send_text(json.dumps(event, ensure_ascii=False))
+                await ws.send_text(json.dumps(item, ensure_ascii=False))
             except Exception:
                 break
     except WebSocketDisconnect:
         pass
     finally:
         try:
-            SUBSCRIBERS.discard(q)
+            await bus.unsubscribe(q)
+        except Exception:
+            pass
+        try:
+            await ws.close()
         except Exception:
             pass
 
@@ -169,11 +284,27 @@ async def test_event(request: Request) -> JSONResponse:
 
     # Publish to in-memory subscribers
     try:
-        await _publish(body)
+        await bus.publish(body)
     except Exception:
         pass
 
     return JSONResponse({"status": "ok", "event": body})
+
+
+@app.get("/api/ops/metrics")
+async def ops_metrics() -> JSONResponse:
+    """Expose simple operational metrics for the broadcast bus."""
+    try:
+        drop = int(getattr(bus, "_drop_count", 0))
+        subs = 0
+        try:
+            # best-effort subscriber count
+            subs = len(getattr(bus, "_subs", []))
+        except Exception:
+            subs = 0
+        return JSONResponse({"drop_count": drop, "subscribers": subs})
+    except Exception:
+        return JSONResponse({"error": "metrics unavailable"}, status_code=500)
 
 
 @app.get("/log-tail")
