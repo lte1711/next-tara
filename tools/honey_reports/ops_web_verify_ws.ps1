@@ -1,5 +1,5 @@
 # ops_web_verify_ws.ps1
-# 목적: /api/ops/test-event 트리거 → SSE(/events) 수신 → WS(/ws/events) 수신 증거 수집
+# 목적: /api/ops/test-event ?�리�???SSE(/events) ?�신 ??WS(/ws/events) ?�신 증거 ?�집
 
 $ErrorActionPreference = "Stop"
 
@@ -21,7 +21,7 @@ $out_trigger = "$out_base.trigger.log"
 
 "=== VAL-OPS-WS-SSE START $ts ===" | Out-File -FilePath $out_master -Encoding utf8
 
-# 1) WS listener (node ws_probe.mjs 활용)
+# 1) WS listener (node ws_probe.mjs ?�용)
 $wsProbeCandidates = @(
   "C:\projects\NEXT-TRADE-UI\tools\ws_probe.mjs",
   (Join-Path $ROOT "tools\ws_probe.mjs")
@@ -37,7 +37,7 @@ if ($wsProbe) {
     node $probe $wsUrl 10 *>> $outFile
   } -ArgumentList $wsProbe, $WS, $out_ws
 } else {
-  "WARN: ws_probe.mjs not found. WS capture will be skipped." | Tee-Object -FilePath $out -Append
+  "WARN: ws_probe.mjs not found. WS capture will be skipped." | Tee-Object -FilePath $out_master -Append
 }
 
 Start-Sleep -Seconds 1
@@ -51,6 +51,14 @@ Start-Sleep -Seconds 1
 Start-Sleep -Seconds 1
 
 # 3) Trigger
+$metrics_before = "--- METRICS BEFORE ---"
+$metrics_before | Tee-Object -FilePath $out_master -Append
+try {
+  curl.exe -s "$BASE/api/ops/metrics" 2>&1 | Tee-Object -FilePath $out_master -Append
+} catch {
+  "METRICS_BEFORE_FAIL" | Tee-Object -FilePath $out_master -Append
+}
+
 $payload = @{
   message = "ops-test"
   source  = "honey-verify"
@@ -82,9 +90,14 @@ if ($wsJob) {
 
 "=== VAL-OPS-WS-SSE END ===" | Tee-Object -FilePath $out_master -Append
 Write-Host "OK: evidence log -> $out_master"
-```
 # --- aggregate remaining info into master file ---
 # copy trigger file contents into master
+"--- METRICS AFTER ---" | Tee-Object -FilePath $out_master -Append
+try {
+  curl.exe -s "$BASE/api/ops/metrics" 2>&1 | Tee-Object -FilePath $out_master -Append
+} catch {
+  "METRICS_AFTER_FAIL" | Tee-Object -FilePath $out_master -Append
+}
 if (Test-Path $out_trigger) { Get-Content $out_trigger -ErrorAction SilentlyContinue | Tee-Object -FilePath $out_master -Append }
 cd C:\projects\NEXT-TRADE
 mkdir -Force .\tools\honey_reports | Out-Null
@@ -145,3 +158,14 @@ Get-Content .\tools\honey_reports\ops_web_8100.err -ErrorAction SilentlyContinue
 Get-Content .\tools\honey_reports\ops_web_8100.log -ErrorAction SilentlyContinue | Select-Object -Last 120 | Out-File -Append $out -Encoding UTF8
 
 Get-Content $out -TotalCount 400 | Out-Host
+
+# --- SAFE END BLOCK (no backticks) ---
+try {
+  "=== VAL-OPS-WS-SSE END ===" | Tee-Object -FilePath $out_master -Append
+  "OK: evidence master log -> $out_master" | Tee-Object -FilePath $out_master -Append
+  Write-Host ("OK: evidence master log -> {0}" -f $out_master)
+  exit 0
+} catch {
+  Write-Host ("END_BLOCK_ERROR: {0}" -f $_.Exception.Message)
+  exit 1
+}
