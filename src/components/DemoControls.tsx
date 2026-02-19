@@ -23,7 +23,7 @@ const DemoControls: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <button style={{ ...buttonBase, fontWeight: demoMode === 'AUTO' ? 700 : 400, flexShrink: 0 }} onClick={() => setDemoMode('AUTO')}>Auto</button>
         <button style={{ ...buttonBase, fontWeight: demoMode === 'MANUAL' ? 700 : 400, flexShrink: 0 }} onClick={() => setDemoMode('MANUAL')}>Manual</button>
-        <button style={{ ...buttonBase, flexShrink: 0 }} onClick={() => setPaused(p => !p)} disabled={demoMode !== 'AUTO'}>{paused ? 'Resume' : 'Pause'}</button>
+        <button style={{ ...buttonBase, flexShrink: 0 }} onClick={() => setPaused((p: boolean) => !p)} disabled={demoMode !== 'AUTO'}>{paused ? 'Resume' : 'Pause'}</button>
         <button style={{ ...buttonBase, flexShrink: 0 }} onClick={() => reset()}>Reset</button>
 
         <div style={{ width: 8 }} />
@@ -51,7 +51,7 @@ const DemoControls: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflowX: 'auto', whiteSpace: 'nowrap' }}>
           <button style={{ ...buttonBase, fontWeight: demoMode === 'AUTO' ? 700 : 400, flexShrink: 0 }} onClick={() => setDemoMode('AUTO')}>Auto</button>
           <button style={{ ...buttonBase, fontWeight: demoMode === 'MANUAL' ? 700 : 400, flexShrink: 0 }} onClick={() => setDemoMode('MANUAL')}>Manual</button>
-          <button style={{ ...buttonBase, flexShrink: 0 }} onClick={() => setPaused(p => !p)} disabled={demoMode !== 'AUTO'}>{paused ? 'Resume' : 'Pause'}</button>
+          <button style={{ ...buttonBase, flexShrink: 0 }} onClick={() => setPaused((p: boolean) => !p)} disabled={demoMode !== 'AUTO'}>{paused ? 'Resume' : 'Pause'}</button>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>
             <input type="checkbox" checked={pauseOnKill} onChange={(e) => setPauseOnKill(e.target.checked)} />
             <span>Pause on KILL</span>

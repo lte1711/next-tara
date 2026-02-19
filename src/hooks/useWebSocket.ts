@@ -24,7 +24,7 @@ export interface WSEvent {
   type?: string  // fallback for alternative message format
   ts: number
   trace_id?: string
-  data: Record<string, any>
+  data: Record<string, unknown>
 }
 
 export interface UseWebSocketOptions {
@@ -53,6 +53,28 @@ export function useWebSocket(options: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const mountedRef = useRef(false)
+
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null
+
+  const isWSEventType = (value: string): value is WSEventType =>
+    [
+      'risk_event',
+      'order_update',
+      'position_snapshot',
+      'engine_state',
+      'heartbeat',
+      'RISK_TRIGGERED',
+      'ORDER_REJECTED',
+      'LEVEL_DOWNGRADED',
+      'LEVEL_RESTORED',
+      'SYSTEM_GUARD',
+      'AUDIT_LOG',
+      'ROUTE_DECIDED',
+      'ROUTE_SPLIT',
+      'ROUTE_REJECTED_SOFT',
+      'ROUTE_REJECTED_HARD',
+    ].includes(value)
 
   // Mount/unmount tracking - separate from connection logic
   useEffect(() => {
@@ -90,16 +112,31 @@ export function useWebSocket(options: UseWebSocketOptions) {
 
       ws.onmessage = (event: MessageEvent) => {
         try {
-          const data = JSON.parse(event.data) as WSEvent
+          const raw: unknown = JSON.parse(event.data)
+          if (!isRecord(raw)) return
+          const rawEventType = typeof raw.event_type === 'string' ? raw.event_type : undefined
+          const rawType = typeof raw.type === 'string' ? raw.type : undefined
+          const event_type: WSEventType = rawEventType && isWSEventType(rawEventType)
+            ? rawEventType
+            : rawType && isWSEventType(rawType)
+            ? rawType
+            : 'heartbeat'
+          const data: WSEvent = {
+            event_type,
+            type: rawType,
+            ts: typeof raw.ts === 'number' ? raw.ts : Math.floor(Date.now() / 1000),
+            trace_id: typeof raw.trace_id === 'string' ? raw.trace_id : undefined,
+            data: isRecord(raw.data) ? raw.data : {},
+          }
           console.log('[WS] Received:', data.event_type || data.type, data)
           setLastMessage(data)
           onMessage?.(data)
-        } catch (e) {
-          console.error('[WS] Parse error:', e)
+        } catch (_e) {
+          console.error('[WS] Parse error:', _e)
         }
       }
 
-      ws.onerror = (event: Event) => {
+      ws.onerror = () => {
         const error = new Error('WebSocket error')
         console.error('[WS] Error:', error)
         onError?.(error)
@@ -123,9 +160,9 @@ export function useWebSocket(options: UseWebSocketOptions) {
       }
 
       wsRef.current = ws
-    } catch (e) {
-      console.error('[WS] Connection error:', e)
-      onError?.(e instanceof Error ? e : new Error(String(e)))
+    } catch (_e) {
+      console.error('[WS] Connection error:', _e)
+      onError?.(_e instanceof Error ? _e : new Error(String(_e)))
     }
   }, [url, onMessage, onError, onConnect, onDisconnect, backoffMs, backoffMultiplier, maxBackoffMs])
 

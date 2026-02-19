@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 export interface AuditLogEntry {
   event_type: string
   ts: number
   trace_id: string
-  data: Record<string, any>
+  data: Record<string, unknown>
 }
 
 interface AuditTerminalProps {
@@ -34,6 +34,11 @@ export function AuditTerminal({ logs, onTraceFilterChange }: AuditTerminalProps)
     const newFilter = filterTraceId === traceId ? null : traceId
     setFilterTraceId(newFilter)
     onTraceFilterChange?.(newFilter)
+  }
+
+  const getDataString = (data: Record<string, unknown>, key: string): string => {
+    const value = data[key]
+    return typeof value === 'string' ? value : ''
   }
 
   const getLogColor = (eventType: string): string => {
@@ -114,9 +119,8 @@ export function AuditTerminal({ logs, onTraceFilterChange }: AuditTerminalProps)
         ) : (
           filteredLogs.map((log, idx) => {
             const reason =
-              (log.data?.reason as string | undefined) ||
-              (log.data?.rejection_reason as string | undefined) ||
-              ''
+              getDataString(log.data, 'reason') ||
+              getDataString(log.data, 'rejection_reason')
 
             return (
             <div

@@ -5,7 +5,6 @@ import React from 'react'
 import GlobalRiskBar from './GlobalRiskBar'
 import OrderPanel from './OrderPanel'
 import { useRisk } from '../context/RiskContext'
-import type { RiskSnapshot } from '../types/risk'
 
 interface Props {
   children?: React.ReactNode

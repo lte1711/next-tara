@@ -31,7 +31,6 @@ export const GlobalRiskBar: React.FC<GlobalRiskBarProps> = ({
   lastUpdate = new Date().toLocaleTimeString('ko-KR'),
   riskEngineActive = true,
   killArmed = false,
-  message,
 }) => {
   const topBorderStyle: React.CSSProperties = {}
   if (mode === 'WARN') topBorderStyle.borderTop = `2px solid var(--warn)`

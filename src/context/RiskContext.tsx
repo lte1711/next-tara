@@ -1,6 +1,7 @@
 "use client"
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 import { getMockRiskSnapshot } from '../mocks/riskMock'
 import type { RiskSnapshot, RiskMode } from '../types/risk'
 
@@ -12,21 +13,19 @@ interface RiskContextValue {
   demoMode: DemoMode
   setDemoMode: (m: DemoMode) => void
   paused: boolean
-  setPaused: (p: boolean) => void
+  setPaused: Dispatch<SetStateAction<boolean>>
   manualMode: RiskMode
   setManualMode: (m: RiskMode) => void
   intervalMs: number
   setIntervalMs: (ms: number) => void
   pauseOnKill: boolean
-  setPauseOnKill: (v: boolean) => void
+  setPauseOnKill: (v: boolean | ((prev: boolean) => boolean)) => void
   reset: () => void
 }
 
-const defaultSnapshot: RiskSnapshot = getMockRiskSnapshot(0)
-
 const RiskContext = createContext<RiskContextValue | null>(null)
 
-export const MockProvider: React.FC<React.PropsWithChildren<{}>> = ({ children }) => {
+export const MockProvider: React.FC<React.PropsWithChildren<Record<string, unknown>>> = ({ children }) => {
   const [tick, setTick] = useState<number>(0)
   const [demoMode, setDemoMode] = useState<DemoMode>('AUTO')
   const [paused, setPaused] = useState<boolean>(false)

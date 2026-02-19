@@ -42,7 +42,7 @@ export interface RiskEvent {
   level: string
   reason: string
   risk_type?: string
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 }
 
 export interface TraceSummary {
@@ -61,7 +61,7 @@ export interface TraceListResponse {
 export interface TraceTimelineEvent {
   ts: number
   event_type: string
-  detail: Record<string, any>
+  detail: Record<string, unknown>
   missing?: boolean
 }
 

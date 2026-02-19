@@ -2,17 +2,18 @@
 
 import { useState } from 'react'
 
-interface DevLoadTestProps {
-  onEmit10kEvents: () => Promise<void>
+type DevLoadTestPanelProps = {
+  onEmit10kEvents?: () => void
 }
 
-export function DevLoadTestPanel({ onEmit10kEvents }: DevLoadTestProps) {
+export function DevLoadTestPanel({ onEmit10kEvents }: DevLoadTestPanelProps): JSX.Element {
   const [isRunning, setIsRunning] = useState(false)
   const [eventsSent, setEventsSent] = useState(0)
   const [droppedCount, setDroppedCount] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
   const handleEmit10k = async () => {
+    onEmit10kEvents?.()
     setIsRunning(true)
     setEventsSent(0)
     setDroppedCount(0)
@@ -53,7 +54,7 @@ export function DevLoadTestPanel({ onEmit10kEvents }: DevLoadTestProps) {
           if (i % 100 === 0) {
             await new Promise(resolve => setTimeout(resolve, 10))
           }
-        } catch (e) {
+        } catch {
           setDroppedCount(prev => prev + 1)
           setEventsSent(i + 1)
         }

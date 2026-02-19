@@ -19,14 +19,24 @@ export default function Dashboard() {
   const [loadingPositions, setLoadingPositions] = useState(true)
   const [loadingRisks, setLoadingRisks] = useState(true)
   const [wsConnected, setWsConnected] = useState(false)
-  const [backoffMs, setBackoffMs] = useState(1000)
-  const [showDevPanel, setShowDevPanel] = useState(process.env.NODE_ENV === 'development')
+  const showDevPanel = process.env.NODE_ENV === 'development'
 
   // TICKET-WS-004: New state for 6 event types
   const [levelDowngradedAlert, setLevelDowngradedAlert] = useState<LevelDowngradedEvent | null>(null)
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([])
   const [filteredAuditLogs, setFilteredAuditLogs] = useState<AuditLogEntry[]>([])
   const [auditFilterTraceId, setAuditFilterTraceId] = useState<string | null>(null)
+
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null
+  const asNumber = (value: unknown, fallback = 0): number =>
+    typeof value === 'number' && Number.isFinite(value) ? value : fallback
+  const asString = (value: unknown, fallback = ''): string =>
+    typeof value === 'string' ? value : fallback
+  const asBoolean = (value: unknown, fallback = false): boolean =>
+    typeof value === 'boolean' ? value : fallback
+  const asStringArray = (value: unknown): string[] | undefined =>
+    Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : undefined
 
   // Load initial data
   const loadData = useCallback(async () => {
@@ -37,7 +47,7 @@ export default function Dashboard() {
         setEngine(engineData)
         console.log('[Dashboard] Engine state loaded:', engineData)
       }
-    } catch (err) {
+    } catch {
       // Fail silent - engine state is optional
     } finally {
       setLoadingEngine(false)
@@ -50,7 +60,7 @@ export default function Dashboard() {
         setPositions(positionsData.positions)
         console.log('[Dashboard] Positions loaded:', positionsData)
       }
-    } catch (err) {
+    } catch {
       // Fail silent - positions are optional
     } finally {
       setLoadingPositions(false)
@@ -61,7 +71,7 @@ export default function Dashboard() {
       const risksData = await apiClient.getRiskHistory(20)
       setRisks(risksData)
       console.log('[Dashboard] Risk history loaded:', risksData)
-    } catch (err) {
+    } catch {
       // Fail silent - risk history is optional
     } finally {
       setLoadingRisks(false)
@@ -90,14 +100,15 @@ export default function Dashboard() {
       // Legacy event types
       case 'engine_state':
         if (event.data) {
+          const data = event.data
           const newEngine: EngineState = {
-            kill_switch_on: event.data.kill_switch_on,
-            risk_type: event.data.risk_type,
-            reason: event.data.reason,
-            uptime_sec: event.data.uptime_sec || 0,
-            published: event.data.published || 0,
-            consumed: event.data.consumed || 0,
-            pending_total: event.data.pending_total || 0,
+            kill_switch_on: asBoolean(data.kill_switch_on),
+            risk_type: asString(data.risk_type) || undefined,
+            reason: asString(data.reason) || undefined,
+            uptime_sec: asNumber(data.uptime_sec),
+            published: asNumber(data.published),
+            consumed: asNumber(data.consumed),
+            pending_total: asNumber(data.pending_total),
           }
           setEngine(newEngine)
         }
@@ -105,12 +116,13 @@ export default function Dashboard() {
 
       case 'position_snapshot':
         if (event.data) {
+          const data = event.data
           const newPosition: Position = {
-            symbol: event.data.symbol,
-            qty: event.data.qty,
-            avg_entry_price: event.data.avg_entry_price,
-            mark_price: event.data.current_price,
-            pnl: event.data.position_pnl,
+            symbol: asString(data.symbol),
+            qty: asNumber(data.qty),
+            avg_entry_price: asNumber(data.avg_entry_price),
+            mark_price: asNumber(data.current_price),
+            pnl: asNumber(data.position_pnl),
           }
           setPositions(prev => {
             if (!prev) return [newPosition]
@@ -122,14 +134,16 @@ export default function Dashboard() {
 
       case 'risk_event':
         if (event.data) {
+          const data = event.data
+          const metadata = isRecord(data.metadata) ? data.metadata : undefined
           const newRisk: RiskEvent = {
             timestamp: event.ts,
-            event_id: event.data.metadata?.audit_id || `risk_${Date.now()}`,
-            event_type: event.data.risk_type,
-            level: event.data.metadata?.level || 'INFO',
-            reason: event.data.reason,
-            risk_type: event.data.risk_type,
-            metadata: event.data.metadata,
+            event_id: asString(metadata?.audit_id) || `risk_${Date.now()}`,
+            event_type: asString(data.risk_type) || 'unknown',
+            level: asString(metadata?.level) || 'INFO',
+            reason: asString(data.reason),
+            risk_type: asString(data.risk_type) || undefined,
+            metadata,
           }
           setRisks(prev => [newRisk, ...prev.slice(0, 19)])
         }
@@ -146,7 +160,7 @@ export default function Dashboard() {
           {
             event_type: 'RISK_TRIGGERED',
             ts: event.ts,
-            trace_id: event.trace_id || '',
+            trace_id: asString(event.trace_id) || asString(event.data.trace_id),
             data: event.data,
           },
           ...prev.slice(0, 999),
@@ -158,7 +172,7 @@ export default function Dashboard() {
           {
             event_type: 'ORDER_REJECTED',
             ts: event.ts,
-            trace_id: event.trace_id || '',
+            trace_id: asString(event.trace_id) || asString(event.data.trace_id),
             data: event.data,
           },
           ...prev.slice(0, 999),
@@ -168,10 +182,10 @@ export default function Dashboard() {
       case 'LEVEL_DOWNGRADED':
         // Trigger alert
         const levelDowngradedEvent: LevelDowngradedEvent = {
-          previous_level: event.data.previous_level,
-          new_level: event.data.new_level,
-          reason: event.data.reason,
-          affected_symbols: event.data.affected_symbols,
+          previous_level: asNumber(event.data.previous_level),
+          new_level: asNumber(event.data.new_level),
+          reason: asString(event.data.reason),
+          affected_symbols: asStringArray(event.data.affected_symbols) || [],
           trace_id: event.trace_id || '',
           ts: event.ts,
         }
@@ -182,7 +196,7 @@ export default function Dashboard() {
           {
             event_type: 'LEVEL_DOWNGRADED',
             ts: event.ts,
-            trace_id: event.trace_id || '',
+            trace_id: asString(event.trace_id) || asString(event.data.trace_id),
             data: event.data,
           },
           ...prev.slice(0, 999),
@@ -194,7 +208,7 @@ export default function Dashboard() {
           {
             event_type: 'LEVEL_RESTORED',
             ts: event.ts,
-            trace_id: event.trace_id || '',
+            trace_id: asString(event.trace_id) || asString(event.data.trace_id),
             data: event.data,
           },
           ...prev.slice(0, 999),
@@ -206,7 +220,7 @@ export default function Dashboard() {
           {
             event_type: 'SYSTEM_GUARD',
             ts: event.ts,
-            trace_id: event.trace_id || '',
+            trace_id: asString(event.trace_id) || asString(event.data.trace_id),
             data: event.data,
           },
           ...prev.slice(0, 999),
@@ -218,7 +232,7 @@ export default function Dashboard() {
           {
             event_type: 'AUDIT_LOG',
             ts: event.ts,
-            trace_id: event.trace_id || '',
+            trace_id: asString(event.trace_id) || asString(event.data.trace_id),
             data: event.data,
           },
           ...prev.slice(0, 999),
@@ -234,7 +248,7 @@ export default function Dashboard() {
           {
             event_type: event.event_type,
             ts: event.ts,
-            trace_id: event.trace_id || event.data?.trace_id || '',
+            trace_id: asString(event.trace_id) || asString(event.data.trace_id),
             data: event.data,
           },
           ...prev.slice(0, 999),
@@ -258,7 +272,6 @@ export default function Dashboard() {
     onMessage: handleWSMessage,
     onConnect: () => {
       setWsConnected(true)
-      setBackoffMs(1000)
       console.log('[Dashboard] WebSocket connected')
     },
     onDisconnect: () => {

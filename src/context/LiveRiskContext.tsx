@@ -8,7 +8,7 @@ export type RiskEvent = {
   trace_id?: string
   severity?: string
   message?: string
-  payload?: any
+  payload?: Record<string, unknown>
 }
 
 export type RiskState = {
@@ -32,12 +32,49 @@ export const useLiveRisk = () => {
   return v
 }
 
-function parseEvent(raw: any): RiskEvent {
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
+const toMode = (value: unknown, fallback: Mode): Mode =>
+  value === 'NORMAL' || value === 'DOWNGRADE' || value === 'KILL' || value === 'UNKNOWN'
+    ? value
+    : fallback
+
+const toNumberRecord = (value: unknown): Record<string, number> | undefined => {
+  if (!isRecord(value)) return undefined
+  const entries = Object.entries(value).filter(([, v]) => typeof v === 'number')
+  if (entries.length === 0) return undefined
+  return Object.fromEntries(entries) as Record<string, number>
+}
+
+function parseEvent(raw: unknown): RiskEvent {
   try {
-    if (typeof raw === 'string') return JSON.parse(raw)
-    return raw
-  } catch (e) {
-    return { type: 'unknown', message: String(raw), payload: raw }
+    if (typeof raw === 'string') {
+      const parsed: unknown = JSON.parse(raw)
+      if (isRecord(parsed)) {
+        return {
+          type: typeof parsed.type === 'string' ? parsed.type : 'unknown',
+          time: typeof parsed.time === 'string' ? parsed.time : undefined,
+          trace_id: typeof parsed.trace_id === 'string' ? parsed.trace_id : undefined,
+          severity: typeof parsed.severity === 'string' ? parsed.severity : undefined,
+          message: typeof parsed.message === 'string' ? parsed.message : undefined,
+          payload: isRecord(parsed.payload) ? parsed.payload : undefined,
+        }
+      }
+    }
+    if (isRecord(raw)) {
+      return {
+        type: typeof raw.type === 'string' ? raw.type : 'unknown',
+        time: typeof raw.time === 'string' ? raw.time : undefined,
+        trace_id: typeof raw.trace_id === 'string' ? raw.trace_id : undefined,
+        severity: typeof raw.severity === 'string' ? raw.severity : undefined,
+        message: typeof raw.message === 'string' ? raw.message : undefined,
+        payload: isRecord(raw.payload) ? raw.payload : undefined,
+      }
+    }
+    return { type: 'unknown', message: String(raw) }
+  } catch {
+    return { type: 'unknown', message: String(raw) }
   }
 }
 
@@ -67,14 +104,29 @@ export const LiveRiskProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const parsed = parseEvent(ev.data)
         // keep latest state derived from event types
         if (parsed.type === 'risk_state' || parsed.type === 'risk_update') {
-          const p = parsed.payload || parsed
-          setState((s) => ({ ...s, mode: (p.mode || p.status || s.mode) as any, risk_score: p.risk_score ?? s.risk_score, limits: p.limits ?? s.limits, reason: p.reason ?? s.reason }))
+          const p = parsed.payload ?? (isRecord(parsed) ? parsed : {})
+          setState((s) => ({
+            ...s,
+            mode: toMode((p as Record<string, unknown>).mode ?? (p as Record<string, unknown>).status, s.mode),
+            risk_score: typeof (p as Record<string, unknown>).risk_score === 'number' ? (p as Record<string, unknown>).risk_score as number : s.risk_score,
+            limits: toNumberRecord((p as Record<string, unknown>).limits) ?? s.limits,
+            reason: typeof (p as Record<string, unknown>).reason === 'string' ? (p as Record<string, unknown>).reason as string : s.reason,
+          }))
         } else if (parsed.type === 'risk_downgrade') {
-          const p = parsed.payload || parsed
-          setState((s) => ({ ...s, mode: 'DOWNGRADE', limits: p.limits ?? s.limits, reason: p.reason ?? s.reason }))
+          const p = parsed.payload ?? (isRecord(parsed) ? parsed : {})
+          setState((s) => ({
+            ...s,
+            mode: 'DOWNGRADE',
+            limits: toNumberRecord((p as Record<string, unknown>).limits) ?? s.limits,
+            reason: typeof (p as Record<string, unknown>).reason === 'string' ? (p as Record<string, unknown>).reason as string : s.reason,
+          }))
         } else if (parsed.type === 'kill_switch') {
-          const p = parsed.payload || parsed
-          setState((s) => ({ ...s, mode: 'KILL', reason: p.reason ?? s.reason }))
+          const p = parsed.payload ?? (isRecord(parsed) ? parsed : {})
+          setState((s) => ({
+            ...s,
+            mode: 'KILL',
+            reason: typeof (p as Record<string, unknown>).reason === 'string' ? (p as Record<string, unknown>).reason as string : s.reason,
+          }))
         }
 
         setEvents((e) => [{ ...parsed, time: new Date().toISOString() }, ...e].slice(0, 200))

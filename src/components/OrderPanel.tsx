@@ -12,7 +12,7 @@ export interface OrderPanelProps {
   initialPrice?: string
 }
 
-export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, initialSymbol = 'BTCUSDT', initialQty = '1', initialPrice = '50000' }) => {
+export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, initialSymbol = 'BTCUSDT', initialQty = '1', initialPrice = '50000' }) => {
   const isKill = mode === 'KILL'
   const isDowngrade = mode === 'DOWNGRADE'
 
@@ -30,7 +30,6 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
     ? 'Warning: trading under constraints'
     : undefined
 
-  const sendBtnDisabled = isKill
   const sendBtnBase: React.CSSProperties = { padding: '8px 12px', borderRadius: 6, background: 'var(--panel)', fontWeight: 700 }
   let sendBtnStyle: React.CSSProperties = { ...sendBtnBase, border: '1px solid var(--border)', color: 'var(--text)' }
 
@@ -103,9 +102,6 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
     return Number.isFinite(v) ? v : NaN
   }, [priceInput])
 
-  const formattedQty = useMemo(() => (Number.isFinite(parsedQty) ? formatNumber(parsedQty, 3) : ''), [parsedQty])
-  const formattedPrice = useMemo(() => (Number.isFinite(parsedPrice) ? formatNumber(parsedPrice, 2) : ''), [parsedPrice])
-
   // Validation rules
 
   const errors = useMemo(() => {
@@ -139,7 +135,7 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, reason, ini
     }
 
     return e
-  }, [symbol, qtyInput, priceInput, isDowngrade])
+  }, [symbol, qtyInput, priceInput, isDowngrade, parsedQty, parsedPrice])
 
   const hasErrors = Object.keys(errors).length > 0
   const canSubmit = !isKill && !hasErrors
