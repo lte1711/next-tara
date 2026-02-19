@@ -939,3 +939,21 @@ async def clear_hung_subs() -> JSONResponse:
         return JSONResponse({"status": "ok", "cleared": cnt})
     except Exception:
         return JSONResponse({"status": "error"}, status_code=500)
+
+
+@app.post("/api/dev/emit-event")
+async def dev_emit_event(payload: dict) -> JSONResponse:
+    """DEV-ONLY: Emit custom event to WebSocket bus for load testing."""
+    try:
+        event = {
+            "type": payload.get("event_type", "dev_event"),
+            "ts": int(time.time() * 1000),
+            "trace_id": str(uuid.uuid4()),
+            "source": "dev_load_test",
+            "severity": "info",
+            "data": payload,
+        }
+        await bus.publish(event)
+        return JSONResponse({"status": "ok"})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
