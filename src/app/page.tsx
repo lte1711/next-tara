@@ -296,18 +296,18 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 p-8">
+    <div className="min-h-screen bg-bg p-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-4xl font-bold mb-2">Command Center</h1>
+        <h1 className="text-4xl font-bold mb-2 text-text-strong">Command Center</h1>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <div className={`w-3 h-3 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-            <span className="text-sm text-gray-400">
+            <div className={`w-3 h-3 rounded-full ${wsConnected ? 'bg-ok' : 'bg-danger'}`}></div>
+            <span className="text-sm text-muted">
               {wsConnected ? 'WebSocket Connected' : 'WebSocket Disconnected'}
             </span>
           </div>
-          <span className="text-sm text-gray-500">PHASE 9-1 Dashboard MVP + TICKET-WS-004</span>
+          <span className="text-sm text-muted-dark">PHASE 9-1 Dashboard MVP + TICKET-WS-004</span>
         </div>
       </div>
 
@@ -351,8 +351,8 @@ export default function Dashboard() {
       </div>
 
       {/* Footer Debug Info */}
-      <div className="mt-8 p-4 bg-gray-800 rounded border border-gray-700">
-        <p className="text-xs text-gray-500 font-mono">
+      <div className="mt-8 p-4 bg-panel rounded-lg border border-border-subtle">
+        <p className="text-xs text-muted-dark font-mono">
           API: {process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'} | WS: {wsUrl}
         </p>
       </div>

@@ -462,18 +462,18 @@ export default function OpsPage() {
 
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 p-6">
+    <div className="min-h-screen bg-bg text-text p-6">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold text-slate-900">Evergreen Ops Dashboard</h1>
+            <h1 className="text-3xl font-bold text-text-strong">Evergreen Ops Dashboard</h1>
             {getGradeBadge()}
             {getMissionInfo()}
           </div>
           <div className="flex items-center gap-4">
             {getDataModeBadge()}
-            <div className="text-sm text-slate-500">
+            <div className="text-sm text-muted">
               Auto-refresh: 10s | Last update: {isClient ? (
                 <span>{new Date().toLocaleTimeString("ko-KR")}</span>
               ) : (
@@ -486,16 +486,16 @@ export default function OpsPage() {
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Service Status */}
-          <Card className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-xs font-medium text-slate-600">Service Status</CardTitle>
+              <CardTitle className="text-xs font-medium text-muted">Service Status</CardTitle>
               {statusValueLower && getStatusIcon(statusValueLower)}
             </CardHeader>
             <CardContent>
-              <div className="mt-1 text-2xl font-semibold text-slate-900">
+              <div className="mt-1 text-2xl font-semibold text-text-strong">
                 {statusValueLower ? getStatusBadge(statusValueLower) : null}
               </div>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-muted">
                 Heartbeat: {typeof statusRecord.heartbeat_sec_ago === "number"
                   ? `${statusRecord.heartbeat_sec_ago.toFixed(1)}s ago`
                   : "N/A"}
@@ -504,9 +504,9 @@ export default function OpsPage() {
           </Card>
 
           {/* Cumulative Runtime */}
-          <Card className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-xs font-medium text-slate-600">Cumulative Runtime</CardTitle>
+              <CardTitle className="text-xs font-medium text-muted">Cumulative Runtime</CardTitle>
               <TrendingUp className="h-4 w-4 text-blue-500" />
             </CardHeader>
             <CardContent>
@@ -521,8 +521,8 @@ export default function OpsPage() {
                     : cumulativeRuntimeSec / 3600;
                 const targetH = asNum(statusRecord.target_h, 168);
                 return <>
-                  <div className="mt-1 text-2xl font-semibold text-slate-900">{cumulativeRuntimeH.toFixed(2)}h</div>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <div className="mt-1 text-2xl font-semibold text-text-strong">{cumulativeRuntimeH.toFixed(2)}h</div>
+                  <p className="mt-1 text-xs text-muted">
                     {Math.floor(cumulativeRuntimeSec)}s | Target: {targetH}h
                   </p>
                 </>;
@@ -531,9 +531,9 @@ export default function OpsPage() {
           </Card>
 
           {/* Progress */}
-          <Card className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-xs font-medium text-slate-600">Progress</CardTitle>
+              <CardTitle className="text-xs font-medium text-muted">Progress</CardTitle>
               {(() => {
                 const progressPct =
                   typeof statusRecord.progress_percent === "number"
@@ -556,7 +556,7 @@ export default function OpsPage() {
                     : asNum(statusRecord.remaining_hours, 0);
                 return <>
                   <Progress value={progressPct} className="mt-2" />
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-muted">
                     Remaining: {remainingH.toFixed(2)}h
                   </p>
                 </>;
@@ -565,16 +565,16 @@ export default function OpsPage() {
           </Card>
 
           {/* Restart Count */}
-          <Card className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-xs font-medium text-slate-600">Restart Count</CardTitle>
+              <CardTitle className="text-xs font-medium text-muted">Restart Count</CardTitle>
               <AlertCircle className="h-4 w-4 text-orange-500" />
             </CardHeader>
             <CardContent>
-              <div className="mt-1 text-2xl font-semibold text-slate-900">
+              <div className="mt-1 text-2xl font-semibold text-text-strong">
                 {typeof statusRecord.restart_count === "number" ? statusRecord.restart_count : 0}
               </div>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-muted">
                 Ticks: {asNum(statusRecord.total_ticks, 0).toLocaleString()}
               </p>
             </CardContent>
@@ -582,9 +582,9 @@ export default function OpsPage() {
         </div>
 
         {/* Milestones */}
-        <Card className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
           <CardHeader>
-            <CardTitle className="text-xs font-medium text-slate-600">Milestones</CardTitle>
+            <CardTitle className="text-xs font-medium text-muted">Milestones</CardTitle>
           </CardHeader>
           <CardContent>
             {(() => {
@@ -631,9 +631,9 @@ export default function OpsPage() {
         </Card>
 
         {/* Events & Logs Tabs */}
-        <Card className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
           <CardHeader>
-            <CardTitle className="text-xs font-medium text-slate-600">Events & Logs</CardTitle>
+            <CardTitle className="text-xs font-medium text-muted">Events & Logs</CardTitle>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="events" className="w-full">
@@ -647,8 +647,8 @@ export default function OpsPage() {
                 <div className="border rounded-lg overflow-hidden">
                   <div className="max-h-96 overflow-y-auto">
                     <table className="w-full text-xs">
-                      <thead className="bg-slate-100 sticky top-0">
-                        <tr className="text-xs font-semibold text-slate-700">
+                      <thead className="bg-panel-2 sticky top-0">
+                        <tr className="text-xs font-semibold text-text-strong">
                           <th className="px-4 py-2 text-left">Timestamp</th>
                           <th className="px-4 py-2 text-left">Event</th>
                           <th className="px-4 py-2 text-left">Severity</th>
@@ -656,22 +656,28 @@ export default function OpsPage() {
                           <th className="px-4 py-2 text-left">Restarts</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-200 bg-white">
-                        {events.map((event, idx) => (
-                          <tr key={idx} className="text-xs text-slate-700 hover:bg-slate-50">
+                      <tbody className="divide-y divide-border-subtle bg-panel">
+                        {events.map((ev, idx) => {
+                          const evt = getRecord(ev);
+                          return (
+                          <tr key={idx} className="text-xs text-text hover:bg-panel-2">
                             <td className="px-4 py-2">
-                              {new Date((event.ts ?? 0) * 1000).toLocaleString()}
+                              {new Date(asNum(evt.ts) * 1000).toLocaleString()}
                             </td>
-                            <td className="px-4 py-2 font-mono text-xs">{event.event || "-"}</td>
+                            <td className="px-4 py-2 font-mono text-xs">{asString(evt.event) || "-"}</td>
                             <td className="px-4 py-2">
-                              <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold ${getSeverityColor(event.severity ?? "info")}`}>{event.severity || "info"}</span>
+                              <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold ${getSeverityColor(asString(evt.severity, "info"))}`}>{asString(evt.severity) || "info"}</span>
                             </td>
                             <td className="px-4 py-2">
-                              {event.cumulative_runtime_sec ? (event.cumulative_runtime_sec / 3600).toFixed(2) : "-"}
+                              {(() => {
+                                const val = evt.cumulative_runtime_sec;
+                                return typeof val === 'number' ? (val / 3600).toFixed(2) : "-";
+                              })()}
                             </td>
-                            <td className="px-4 py-2">{event.restart_count || "-"}</td>
+                            <td className="px-4 py-2">{asNum(evt.restart_count) || "-"}</td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -701,9 +707,9 @@ export default function OpsPage() {
       {/* PHASE 24-5: History & Alerts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* History(24h) 라인차트 */}
-        <Card className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
           <CardHeader>
-            <CardTitle className="text-xs font-medium text-slate-600">History (24h)</CardTitle>
+            <CardTitle className="text-xs font-medium text-muted">History (24h)</CardTitle>
           </CardHeader>
           <CardContent>
             <div style={{ width: "100%", height: 260, minHeight: 260 }}>

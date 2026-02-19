@@ -3,12 +3,12 @@
 import { TraceTimelineEvent } from '@/lib/api'
 
 const typeColor: Record<string, string> = {
-  ROUTE_DECIDED: 'border-cyan-500/40 text-cyan-300',
-  ORDER_CREATED: 'border-indigo-500/40 text-indigo-300',
-  ORDER_ACK: 'border-emerald-500/40 text-emerald-300',
-  ORDER_EXEC_REPORT: 'border-emerald-500/40 text-emerald-200',
-  ORDER_REJECTED: 'border-rose-500/40 text-rose-300',
-  ORDER_EXECUTION_SKIPPED: 'border-amber-500/40 text-amber-300',
+  ROUTE_DECIDED: 'border-info/40 text-info',
+  ORDER_CREATED: 'border-info/40 text-info',
+  ORDER_ACK: 'border-ok/40 text-ok',
+  ORDER_EXEC_REPORT: 'border-ok/40 text-ok',
+  ORDER_REJECTED: 'border-danger/40 text-danger',
+  ORDER_EXECUTION_SKIPPED: 'border-warn/40 text-warn',
 }
 
 function formatTs(ms: number) {
@@ -18,7 +18,7 @@ function formatTs(ms: number) {
 export function TraceTimeline({ events }: { events: TraceTimelineEvent[] }) {
   if (!events.length) {
     return (
-      <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-6 text-slate-400">
+      <div className="rounded-lg border border-border-subtle bg-panel p-6 text-muted">
         No events recorded.
       </div>
     )
@@ -27,21 +27,21 @@ export function TraceTimeline({ events }: { events: TraceTimelineEvent[] }) {
   return (
     <div className="space-y-4">
       {events.map((event, index) => {
-        const color = typeColor[event.event_type] || 'border-slate-600 text-slate-200'
+        const color = typeColor[event.event_type] || 'border-muted text-muted'
         return (
-          <div key={`${event.event_type}-${event.ts}-${index}`} className="rounded-lg border border-slate-800 bg-slate-950/40 p-4">
+          <div key={`${event.event_type}-${event.ts}-${index}`} className="rounded-lg border border-border-subtle bg-panel p-4">
             <div className="flex flex-wrap items-center gap-3">
               <span className={`rounded-full border px-2 py-1 text-xs ${color}`}>
                 {event.event_type}
               </span>
-              <span className="text-xs text-slate-400">{formatTs(event.ts)}</span>
+              <span className="text-xs text-muted">{formatTs(event.ts)}</span>
               {event.missing && (
-                <span className="rounded-full border border-rose-500/40 px-2 py-1 text-xs text-rose-300">
+                <span className="rounded-full border border-danger/40 px-2 py-1 text-xs text-danger">
                   missing
                 </span>
               )}
             </div>
-            <pre className="mt-3 max-h-60 overflow-auto rounded-md bg-slate-900/70 p-3 text-xs text-slate-200">
+            <pre className="mt-3 max-h-60 overflow-auto rounded-md bg-panel-2 p-3 text-xs text-text">
               {JSON.stringify(event.detail, null, 2)}
             </pre>
           </div>

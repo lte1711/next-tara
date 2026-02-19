@@ -34,9 +34,9 @@ export function SummaryCards({ summary }: { summary: DashboardSummary | null }) 
   return (
     <div className="grid gap-4 md:grid-cols-5">
       {cards.map((card) => (
-        <div key={card.label} className="rounded-lg border border-slate-800 bg-slate-950/50 p-4">
-          <p className="text-xs text-slate-400">{card.label}</p>
-          <p className="mt-2 text-lg font-semibold text-slate-100">{card.value}</p>
+        <div key={card.label} className="rounded-lg border border-border-subtle bg-panel p-4">
+          <p className="text-xs text-muted">{card.label}</p>
+          <p className="mt-2 text-lg font-semibold text-text-strong">{card.value}</p>
         </div>
       ))}
     </div>

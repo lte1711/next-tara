@@ -67,28 +67,28 @@ export function DevLoadTestPanel({ onEmit10kEvents }: DevLoadTestPanelProps): JS
   }
 
   return (
-    <div className="bg-gray-900 border-2 border-yellow-600 rounded p-4 mb-4">
+    <div className="bg-panel border-2 border-warn rounded p-4 mb-4">
       {/* Header */}
       <div className="flex items-center gap-2 mb-4">
-        <span className="text-yellow-600 text-lg">⚙️</span>
-        <h3 className="text-yellow-600 font-bold">DEV-ONLY: Load Test (10,000 Events)</h3>
+        <span className="text-warn text-lg">⚙️</span>
+        <h3 className="text-warn font-bold">DEV-ONLY: Load Test (10,000 Events)</h3>
       </div>
 
       {/* Status */}
       <div className="grid grid-cols-3 gap-4 mb-4">
-        <div className="bg-gray-800 rounded p-3">
-          <p className="text-gray-500 text-xs mb-1">Events Sent</p>
-          <p className="text-white font-mono text-lg">{eventsSent.toLocaleString()}</p>
+        <div className="bg-panel-2 rounded p-3">
+          <p className="text-muted text-xs mb-1">Events Sent</p>
+          <p className="text-text-strong font-mono text-lg">{eventsSent.toLocaleString()}</p>
         </div>
-        <div className="bg-gray-800 rounded p-3">
-          <p className="text-gray-500 text-xs mb-1">Dropped</p>
-          <p className={`font-mono text-lg ${droppedCount > 0 ? 'text-red-400' : 'text-green-400'}`}>
+        <div className="bg-panel-2 rounded p-3">
+          <p className="text-muted text-xs mb-1">Dropped</p>
+          <p className={`font-mono text-lg ${droppedCount > 0 ? 'text-danger' : 'text-ok'}`}>
             {droppedCount.toLocaleString()}
           </p>
         </div>
-        <div className="bg-gray-800 rounded p-3">
-          <p className="text-gray-500 text-xs mb-1">Success Rate</p>
-          <p className="text-white font-mono text-lg">
+        <div className="bg-panel-2 rounded p-3">
+          <p className="text-muted text-xs mb-1">Success Rate</p>
+          <p className="text-text-strong font-mono text-lg">
             {eventsSent > 0 ? (((eventsSent - droppedCount) / eventsSent) * 100).toFixed(1) : 0}%
           </p>
         </div>
@@ -96,7 +96,7 @@ export function DevLoadTestPanel({ onEmit10kEvents }: DevLoadTestPanelProps): JS
 
       {/* Error Message */}
       {error && (
-        <div className="bg-red-900 border border-red-700 text-red-200 p-2 rounded mb-4 text-sm">
+        <div className="bg-danger/10 border border-danger text-danger p-2 rounded mb-4 text-sm">
           {error}
         </div>
       )}
@@ -107,15 +107,15 @@ export function DevLoadTestPanel({ onEmit10kEvents }: DevLoadTestPanelProps): JS
         disabled={isRunning}
         className={`w-full py-3 px-4 rounded font-bold transition-colors ${
           isRunning
-            ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-            : 'bg-yellow-600 hover:bg-yellow-700 text-white'
+            ? 'bg-panel-2 text-muted cursor-not-allowed'
+            : 'bg-warn hover:bg-warn/90 text-white'
         }`}
       >
         {isRunning ? `Emitting... (${eventsSent}/10,000)` : 'Emit 10,000 Events (Stress Test)'}
       </button>
 
       {/* Info */}
-      <p className="text-xs text-gray-500 mt-3">
+      <p className="text-xs text-muted mt-3">
         💡 Monitors: WS backpressure, UI responsiveness, reconnection behavior, WS_DROPPED audit logs
       </p>
     </div>

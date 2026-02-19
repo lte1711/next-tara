@@ -4,11 +4,11 @@ import Link from 'next/link'
 import { TraceSummary } from '@/lib/api'
 
 const statusColor: Record<string, string> = {
-  FILLED: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20',
-  PARTIAL: 'bg-amber-500/10 text-amber-300 border-amber-500/20',
-  REJECTED: 'bg-rose-500/10 text-rose-300 border-rose-500/20',
-  CANCELED: 'bg-slate-500/10 text-slate-300 border-slate-500/20',
-  UNKNOWN: 'bg-slate-500/10 text-slate-300 border-slate-500/20',
+  FILLED: 'bg-ok/10 text-ok border-ok/20',
+  PARTIAL: 'bg-warn/10 text-warn border-warn/20',
+  REJECTED: 'bg-danger/10 text-danger border-danger/20',
+  CANCELED: 'bg-muted/10 text-muted border-muted/20',
+  UNKNOWN: 'bg-muted/10 text-muted border-muted/20',
 }
 
 function formatTs(ms?: number) {
@@ -19,16 +19,16 @@ function formatTs(ms?: number) {
 export function TraceListTable({ items }: { items: TraceSummary[] }) {
   if (!items.length) {
     return (
-      <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-6 text-slate-400">
+      <div className="rounded-lg border border-border-subtle bg-panel p-6 text-muted">
         No traces found.
       </div>
     )
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-800">
+    <div className="overflow-hidden rounded-lg border border-border-subtle">
       <table className="w-full text-sm">
-        <thead className="bg-slate-900/70 text-left text-slate-300">
+        <thead className="bg-panel-2 text-left text-text">
           <tr>
             <th className="px-4 py-3">Trace ID</th>
             <th className="px-4 py-3">Symbol</th>
@@ -38,21 +38,21 @@ export function TraceListTable({ items }: { items: TraceSummary[] }) {
             <th className="px-4 py-3">Last Updated</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-900/70">
+        <tbody className="divide-y divide-border-subtle">
           {items.map((item) => {
             const status = (item.status || 'UNKNOWN').toUpperCase()
             return (
-              <tr key={item.trace_id} className="hover:bg-slate-900/40">
+              <tr key={item.trace_id} className="hover:bg-panel">
                 <td className="px-4 py-3">
                   <Link
                     href={`/dashboard/orders/${item.trace_id}`}
-                    className="text-cyan-300 hover:text-cyan-200"
+                    className="text-info hover:text-info/80"
                   >
                     {item.trace_id}
                   </Link>
                 </td>
-                <td className="px-4 py-3 text-slate-200">{item.symbol || '-'}</td>
-                <td className="px-4 py-3 text-slate-200">{item.last_event_type}</td>
+                <td className="px-4 py-3 text-text">{item.symbol || '-'}</td>
+                <td className="px-4 py-3 text-text">{item.last_event_type}</td>
                 <td className="px-4 py-3">
                   <span
                     className={`inline-flex items-center rounded-full border px-2 py-1 text-xs ${
@@ -62,8 +62,8 @@ export function TraceListTable({ items }: { items: TraceSummary[] }) {
                     {status}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-slate-400">{formatTs(item.first_ts)}</td>
-                <td className="px-4 py-3 text-slate-400">{formatTs(item.last_ts)}</td>
+                <td className="px-4 py-3 text-muted">{formatTs(item.first_ts)}</td>
+                <td className="px-4 py-3 text-muted">{formatTs(item.last_ts)}</td>
               </tr>
             )
           })}
