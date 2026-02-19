@@ -3,6 +3,12 @@
 import React, { useMemo, useState } from 'react'
 import { RiskMode, TradeLevel } from '../types/risk'
 
+function normalizeEpochMs(ts: unknown): number | null {
+  const n = typeof ts === "number" ? ts : Number(ts)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return n < 10_000_000_000 ? Math.round(n * 1000) : Math.round(n)
+}
+
 export interface OrderPanelProps {
   mode: RiskMode
   level: TradeLevel
@@ -10,11 +16,28 @@ export interface OrderPanelProps {
   initialSymbol?: string
   initialQty?: string
   initialPrice?: string
+  liveState?: {
+    is_stale?: boolean
+    last_obs?: { ts?: unknown }
+  }
 }
 
-export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, initialSymbol = 'BTCUSDT', initialQty = '1', initialPrice = '50000' }) => {
+export const OrderPanel: React.FC<OrderPanelProps> = ({
+  mode,
+  level,
+  initialSymbol = 'BTCUSDT',
+  initialQty = '1',
+  initialPrice = '50000',
+  liveState,
+}) => {
   const isKill = mode === 'KILL'
   const isDowngrade = mode === 'DOWNGRADE'
+  const nowMs = Date.now()
+  const lastMs = normalizeEpochMs(liveState?.last_obs?.ts)
+  const obsAgeSec = lastMs == null ? Infinity : (nowMs - lastMs) / 1000
+  const STALE_SEC = 2
+  const isActuallyStale = lastMs == null ? false : obsAgeSec > STALE_SEC
+  const showStaleBadge = lastMs != null
 
   const levelStyleMap: Record<string, React.CSSProperties> = {
     L0_VIEW: { opacity: 0.6 },
@@ -154,7 +177,23 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({ mode, level, initialSymb
         <div style={{ textAlign: 'right' }}>
           {reasonText && <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>{reasonText}</div>}
 
-          <div style={levelStyleMap[level] || { opacity: 0.85, fontWeight: 600 }}>Trade Level: {level}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+            <div style={levelStyleMap[level] || { opacity: 0.85, fontWeight: 600 }}>Trade Level: {level}</div>
+            {showStaleBadge && (
+              <span
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: 6,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  border: '1px solid var(--border)',
+                  color: isActuallyStale ? 'var(--warn)' : 'var(--profit)',
+                }}
+              >
+                {isActuallyStale ? 'STALE' : 'LIVE'}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
