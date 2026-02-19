@@ -462,18 +462,18 @@ export default function OpsPage() {
 
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 p-6">
+    <div className="min-h-screen bg-bg text-text p-6">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold text-slate-900">Evergreen Ops Dashboard</h1>
+            <h1 className="text-3xl font-bold text-text-strong">Evergreen Ops Dashboard</h1>
             {getGradeBadge()}
             {getMissionInfo()}
           </div>
           <div className="flex items-center gap-4">
             {getDataModeBadge()}
-            <div className="text-sm text-slate-500">
+            <div className="text-sm text-muted">
               Auto-refresh: 10s | Last update: {isClient ? (
                 <span>{new Date().toLocaleTimeString("ko-KR")}</span>
               ) : (
@@ -486,16 +486,16 @@ export default function OpsPage() {
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Service Status */}
-          <Card className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-xs font-medium text-slate-600">Service Status</CardTitle>
+              <CardTitle className="text-xs font-medium text-muted">Service Status</CardTitle>
               {statusValueLower && getStatusIcon(statusValueLower)}
             </CardHeader>
             <CardContent>
-              <div className="mt-1 text-2xl font-semibold text-slate-900">
+              <div className="mt-1 text-2xl font-semibold text-text-strong">
                 {statusValueLower ? getStatusBadge(statusValueLower) : null}
               </div>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-muted">
                 Heartbeat: {typeof statusRecord.heartbeat_sec_ago === "number"
                   ? `${statusRecord.heartbeat_sec_ago.toFixed(1)}s ago`
                   : "N/A"}

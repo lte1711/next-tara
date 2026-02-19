@@ -4,24 +4,40 @@
 
 :root {
   /* Background & Surfaces */
-  --bg: #0F172A;
+  --bg: #0a0e1a;
   --panel: #111827;
-  --panel2: #1E293B;
+  --panel-2: #1e293b;
   --border: #334155;
+  --border-subtle: #1e293b;
 
   /* Typography */
-  --text: #E5E7EB;
-  --muted: #94A3B8;
+  --text: #e5e7eb;
+  --text-strong: #f9fafb;
+  --muted: #94a3b8;
+  --muted-dark: #64748b;
 
-  /* Status Colors */
-  --profit: #22C55E;
-  --loss: #EF4444;
-  --warn: #F59E0B;
-  --kill: #B91C1C;
-  --downgrade: #7C3AED;
+  /* Status Colors - Semantic */
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --info: #06b6d4;
+
+  /* Legacy Status Colors (keep for compatibility) */
+  --profit: #22c55e;
+  --loss: #ef4444;
+  --kill: #b91c1c;
+  --downgrade: #7c3aed;
+
+  /* Accent & Highlights */
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
 
   /* Layout */
-  --radius: 6px;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 16px;
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 body {

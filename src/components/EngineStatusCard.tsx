@@ -10,11 +10,11 @@ interface EngineStatusCardProps {
 export function EngineStatusCard({ engine, loading }: EngineStatusCardProps) {
   if (loading) {
     return (
-      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-        <h2 className="text-xl font-bold mb-4">Engine Status</h2>
+      <div className="bg-panel rounded-lg p-6 border border-border-subtle">
+        <h2 className="text-xl font-bold mb-4 text-text-strong">Engine Status</h2>
         <div className="animate-pulse space-y-2">
-          <div className="h-4 bg-gray-700 rounded w-1/2"></div>
-          <div className="h-4 bg-gray-700 rounded w-1/3"></div>
+          <div className="h-4 bg-panel-2 rounded w-1/2"></div>
+          <div className="h-4 bg-panel-2 rounded w-1/3"></div>
         </div>
       </div>
     )
@@ -22,19 +22,19 @@ export function EngineStatusCard({ engine, loading }: EngineStatusCardProps) {
 
   if (!engine) {
     return (
-      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-        <h2 className="text-xl font-bold mb-4">Engine Status</h2>
-        <p className="text-gray-400">No data available</p>
+      <div className="bg-panel rounded-lg p-6 border border-border-subtle">
+        <h2 className="text-xl font-bold mb-4 text-text-strong">Engine Status</h2>
+        <p className="text-muted">No data available</p>
       </div>
     )
   }
 
-  const killSwitchColor = engine.kill_switch_on ? 'text-red-500' : 'text-green-500'
-  const killSwitchBg = engine.kill_switch_on ? 'bg-red-900' : 'bg-green-900'
+  const killSwitchColor = engine.kill_switch_on ? 'text-danger' : 'text-ok'
+  const killSwitchBg = engine.kill_switch_on ? 'bg-danger/10' : 'bg-ok/10'
 
   return (
-    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-      <h2 className="text-xl font-bold mb-4">Engine Status</h2>
+    <div className="bg-panel rounded-lg p-6 border border-border-subtle">
+      <h2 className="text-xl font-bold mb-4 text-text-strong">Engine Status</h2>
       
       <div className={`mb-4 p-3 rounded ${killSwitchBg}`}>
         <div className="flex items-center gap-2">
@@ -47,27 +47,27 @@ export function EngineStatusCard({ engine, loading }: EngineStatusCardProps) {
 
       <div className="space-y-2 text-sm">
         <div className="flex justify-between">
-          <span className="text-gray-400">Risk Type:</span>
+          <span className="text-muted">Risk Type:</span>
           <span className="font-mono">{engine.risk_type || '—'}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-400">Reason:</span>
+          <span className="text-muted">Reason:</span>
           <span className="font-mono">{engine.reason || '—'}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-400">Uptime:</span>
+          <span className="text-muted">Uptime:</span>
           <span className="font-mono">{engine.uptime_sec.toFixed(1)}s</span>
         </div>
-        <div className="flex justify-between pt-2 border-t border-gray-700 mt-2">
-          <span className="text-gray-400">Published:</span>
+        <div className="flex justify-between pt-2 border-t border-border-subtle mt-2">
+          <span className="text-muted">Published:</span>
           <span className="font-mono">{engine.published}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-400">Consumed:</span>
+          <span className="text-muted">Consumed:</span>
           <span className="font-mono">{engine.consumed}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-400">Pending:</span>
+          <span className="text-muted">Pending:</span>
           <span className="font-mono">{engine.pending_total}</span>
         </div>
       </div>
