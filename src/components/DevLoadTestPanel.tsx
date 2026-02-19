@@ -35,7 +35,7 @@ export function DevLoadTestPanel({ onEmit10kEvents }: DevLoadTestPanelProps): JS
           const eventType = eventTypes[i % eventTypes.length]
           
           // Emit to backend (assuming POST /api/dev/emit-event)
-          const response = await fetch('/api/dev/emit-event', {
+          const response = await fetch('http://localhost:8000/api/dev/emit-event', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
