@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 .env
 logs/
 runs/
@@ -22,3 +23,54 @@ node_modules/
 tsconfig.tsbuildinfo
 .pytest_cache/
 
+=======
+# dependencies
+node_modules
+.pnp
+.pnp.js
+
+# testing
+coverage
+
+# next.js
+.next
+out
+
+# production
+build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# --- UI evidence artifacts (do not commit) ---
+logs/*.html
+logs/*.zip
+logs/ui_institutional*.html
+logs/UI_*_SSR_EVIDENCE.zip
+
+# keep README txt if needed, but ignore generated archives in evidence
+evidence/ui/*.zip
+
+# ignore local logs directory (UI evidence + dev logs)
+logs/
+>>>>>>> feature/ui-stale-001
