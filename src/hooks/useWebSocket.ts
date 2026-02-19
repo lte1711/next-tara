@@ -21,6 +21,7 @@ export type WSEventType =
 
 export interface WSEvent {
   event_type: WSEventType
+  type?: string  // fallback for alternative message format
   ts: number
   trace_id?: string
   data: Record<string, any>

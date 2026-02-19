@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CheckCircle2, XCircle, AlertCircle, Clock, TrendingUp } from "lucide-react";
-import type { HealthStatus, EvergreenStatus, HistoryPoint, AlertEvent, DataMode } from "@/types/domain";
+import type { HealthStatus, EvergreenStatus, HistoryPoint, AlertEvent, DataMode, Event } from "@/types/domain";
 
 const OPS_TOKEN = process.env.NEXT_PUBLIC_OPS_TOKEN || "dev-ops-token-change-me";
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000") + "/api/ops";
@@ -275,15 +275,19 @@ export default function OpsPage() {
     const mode = getDataMode();
     const colors: Record<DataMode, string> = {
       LIVE: "bg-green-500 text-white",
+      SIM: "bg-blue-500 text-white",
+      REPLAY: "bg-indigo-500 text-white",
       STALE: "bg-yellow-500 text-black",
       DOWN: "bg-red-500 text-white",
       DEMO: "bg-purple-500 text-white",
     };
     const icons: Record<DataMode, string> = {
       LIVE: "🟢",
+      SIM: "🔵",
+      REPLAY: "🟣",
       STALE: "🟡",
       DOWN: "🔴",
-      DEMO: "🟣",
+      DEMO: "🟠",
     };
     return (
       <Badge className={`${colors[mode]} font-bold text-sm px-3 py-1`}>
@@ -546,7 +550,7 @@ export default function OpsPage() {
                         {events.map((event, idx) => (
                           <tr key={idx} className="text-xs text-slate-700 hover:bg-slate-50">
                             <td className="px-4 py-2">
-                              {new Date(event.ts * 1000).toLocaleString()}
+                              {new Date((event.ts ?? 0) * 1000).toLocaleString()}
                             </td>
                             <td className="px-4 py-2 font-mono text-xs">{event.event || "-"}</td>
                             <td className="px-4 py-2">
@@ -609,9 +613,9 @@ export default function OpsPage() {
                 {statusChanges.length === 0 && <li className="text-gray-400">No status changes in 24h</li>}
                 {statusChanges.map((ev, idx) => (
                   <li key={idx} className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 rounded border ${getSeverityColor(ev.severity)}`}>{getSeverityIcon(ev.severity)}{ev.severity}</span>
-                    <span>{ev.msg}</span>
-                    <span className="text-gray-400">{new Date(ev.ts * 1000).toLocaleString()}</span>
+                    <span className={`px-2 py-0.5 rounded border ${getSeverityColor(ev.severity ?? "info")}`}>{getSeverityIcon(ev.severity ?? "info")}{ev.severity ?? "info"}</span>
+                    <span>{ev.msg ?? "-"}</span>
+                    <span className="text-gray-400">{new Date((ev.ts ?? 0) * 1000).toLocaleString()}</span>
                   </li>
                 ))}
               </ul>
@@ -638,10 +642,10 @@ export default function OpsPage() {
                 <tbody className="divide-y divide-slate-200 bg-white">
                   {alerts.slice(0, 20).map((a, idx) => (
                     <tr key={idx} className="text-xs text-slate-700 hover:bg-slate-50">
-                      <td className="px-2 py-1">{new Date(a.ts * 1000).toLocaleString()}</td>
-                      <td className="px-2 py-1 font-mono text-xs">{a.event}</td>
-                      <td className="px-2 py-1"><span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold border ${getSeverityColor(a.severity)}`}>{getSeverityIcon(a.severity)}{a.severity}</span></td>
-                      <td className="px-2 py-1 break-all">{a.msg}</td>
+                      <td className="px-2 py-1">{new Date((a.ts ?? 0) * 1000).toLocaleString()}</td>
+                      <td className="px-2 py-1 font-mono text-xs">{a.event ?? "-"}</td>
+                      <td className="px-2 py-1"><span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold border ${getSeverityColor(a.severity ?? "info")}`}>{getSeverityIcon(a.severity ?? "info")}{a.severity ?? "info"}</span></td>
+                      <td className="px-2 py-1 break-all">{a.msg ?? "-"}</td>
                     </tr>
                   ))}
                 </tbody>

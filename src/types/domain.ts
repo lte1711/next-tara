@@ -1,5 +1,5 @@
 // src/types/domain.ts
-// NT-UI-BASELINE-001-FIX-01: Baseline type restore (additive-only)
+// NT-UI-BASELINE-001-FIX-01 & FIX-02: Baseline type restore (additive-only)
 
 export type RiskMode = "SAFE" | "WATCH" | "RISK" | "KILL";
 export type DataMode = "LIVE" | "SIM" | "REPLAY" | "STALE" | "DOWN" | "DEMO";
@@ -34,11 +34,16 @@ export type AlertEvent = {
   severity?: "info" | "warn" | "error";
 };
 
-export type Event = {
+export type OpsEvent = {
   ts?: number;
   event?: string;
-  severity?: string;
+  severity?: "info" | "warn" | "error";
   cumulative_runtime_sec?: number;
   restart_count?: number;
-  [key: string]: any;
+  [k: string]: unknown;
 };
+
+// Alias for compatibility
+export type Event = OpsEvent;
+
+// WSEvent is defined in @/hooks/useWebSocket, don't redefine here
