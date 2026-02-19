@@ -14,3 +14,11 @@ var/
 src/next_trade/runtime/
 src/next_trade/core/
 nul
+
+# local/dev artifacts
+.env.local
+.next/
+node_modules/
+tsconfig.tsbuildinfo
+.pytest_cache/
+
