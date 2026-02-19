@@ -44,43 +44,43 @@ export function AuditTerminal({ logs, onTraceFilterChange }: AuditTerminalProps)
   const getLogColor = (eventType: string): string => {
     switch (eventType) {
       case 'RISK_TRIGGERED':
-        return 'text-red-400'
+        return 'text-danger'
       case 'ORDER_REJECTED':
-        return 'text-yellow-400'
+        return 'text-warn'
       case 'LEVEL_DOWNGRADED':
-        return 'text-red-600'
+        return 'text-danger'
       case 'LEVEL_RESTORED':
-        return 'text-green-400'
+        return 'text-ok'
       case 'SYSTEM_GUARD':
-        return 'text-orange-400'
+        return 'text-warn'
       case 'AUDIT_LOG':
-        return 'text-blue-400'
+        return 'text-info'
       default:
-        return 'text-gray-400'
+        return 'text-muted'
     }
   }
 
   const getBgColor = (eventType: string): string => {
     switch (eventType) {
       case 'LEVEL_DOWNGRADED':
-        return 'bg-red-950'
+        return 'bg-danger/10'
       case 'LEVEL_RESTORED':
-        return 'bg-green-950'
+        return 'bg-ok/10'
       case 'RISK_TRIGGERED':
-        return 'bg-red-900'
+        return 'bg-danger/5'
       default:
-        return 'bg-gray-900'
+        return 'bg-panel-2'
     }
   }
 
   return (
-    <div className="flex flex-col h-full bg-gray-950 border border-gray-700 rounded">
+    <div className="flex flex-col h-full bg-panel border border-border-subtle rounded">
       {/* Header */}
-      <div className="bg-gray-900 border-b border-gray-700 p-3 flex justify-between items-center">
+      <div className="bg-panel-2 border-b border-border-subtle p-3 flex justify-between items-center">
         <div className="flex items-center gap-3">
-          <span className="text-green-400 text-lg">▶</span>
-          <span className="text-gray-400 font-mono text-sm">AUDIT STREAM</span>
-          <span className="text-gray-600 text-xs ml-2">({filteredLogs.length})</span>
+          <span className="text-ok text-lg">▶</span>
+          <span className="text-muted font-mono text-sm">AUDIT STREAM</span>
+          <span className="text-muted-dark text-xs ml-2">({filteredLogs.length})</span>
         </div>
         <div className="flex gap-2">
           {filterTraceId && (
@@ -89,7 +89,7 @@ export function AuditTerminal({ logs, onTraceFilterChange }: AuditTerminalProps)
                 setFilterTraceId(null)
                 onTraceFilterChange?.(null)
               }}
-              className="text-xs bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded text-gray-300"
+              className="text-xs bg-panel-2 hover:bg-panel px-2 py-1 rounded text-text"
             >
               Clear Filter
             </button>
@@ -98,8 +98,8 @@ export function AuditTerminal({ logs, onTraceFilterChange }: AuditTerminalProps)
             onClick={() => setAutoScroll(!autoScroll)}
             className={`text-xs px-2 py-1 rounded ${
               autoScroll 
-                ? 'bg-green-900 text-green-300' 
-                : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+                ? 'bg-ok/10 text-ok' 
+                : 'bg-panel-2 hover:bg-panel text-text'
             }`}
           >
             {autoScroll ? '🔒 Auto' : '🔓 Manual'}
@@ -113,7 +113,7 @@ export function AuditTerminal({ logs, onTraceFilterChange }: AuditTerminalProps)
         className="flex-1 overflow-y-auto p-3 font-mono text-xs space-y-1"
       >
         {filteredLogs.length === 0 ? (
-          <div className="text-gray-600">
+          <div className="text-muted-dark">
             {filterTraceId ? '(no logs matching filter)' : '(waiting for events...)'}
           </div>
         ) : (
@@ -125,12 +125,12 @@ export function AuditTerminal({ logs, onTraceFilterChange }: AuditTerminalProps)
             return (
             <div
               key={idx}
-              className={`${getBgColor(log.event_type)} p-2 rounded hover:bg-opacity-70 transition-colors cursor-pointer border-l-4 border-gray-700`}
+              className={`${getBgColor(log.event_type)} p-2 rounded hover:bg-opacity-70 transition-colors cursor-pointer border-l-4 border-border-subtle`}
               onClick={() => handleTraceClick(log.trace_id)}
             >
               <div className="flex items-start gap-2">
                 {/* Timestamp */}
-                <span className="text-gray-600 shrink-0 whitespace-nowrap">
+                <span className="text-muted-dark shrink-0 whitespace-nowrap">
                   {new Date(log.ts).toLocaleTimeString('en-US', { 
                     hour12: false,
                     hour: '2-digit',
@@ -145,21 +145,21 @@ export function AuditTerminal({ logs, onTraceFilterChange }: AuditTerminalProps)
                 </span>
 
                 {reason && (
-                  <span className="text-red-300 font-semibold shrink-0 whitespace-nowrap">
+                  <span className="text-danger font-semibold shrink-0 whitespace-nowrap">
                     reason={reason}
                   </span>
                 )}
 
                 {/* Trace ID (clickable) */}
                 <span
-                  className={`text-blue-300 hover:text-blue-100 underline cursor-pointer whitespace-nowrap`}
+                  className={`text-info hover:text-info/80 underline cursor-pointer whitespace-nowrap`}
                   title="Click to filter by trace_id"
                 >
                   #{log.trace_id.substring(0, 8)}
                 </span>
 
                 {/* Data Preview */}
-                <span className="text-gray-300 break-all">
+                <span className="text-text break-all">
                   {JSON.stringify(log.data).substring(0, 100)}
                   {JSON.stringify(log.data).length > 100 ? '...' : ''}
                 </span>
@@ -170,10 +170,10 @@ export function AuditTerminal({ logs, onTraceFilterChange }: AuditTerminalProps)
       </div>
 
       {/* Footer */}
-      <div className="bg-gray-900 border-t border-gray-700 p-2 text-xs text-gray-600">
+      <div className="bg-panel-2 border-t border-border-subtle p-2 text-xs text-muted-dark">
         {filterTraceId && (
           <span>
-            🔍 Filtered by trace_id: <span className="text-gray-400 font-mono">{filterTraceId.substring(0, 12)}...</span>
+            🔍 Filtered by trace_id: <span className="text-muted font-mono">{filterTraceId.substring(0, 12)}...</span>
           </span>
         )}
       </div>

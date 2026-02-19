@@ -35,11 +35,11 @@ export function LevelDowngradedAlert({ event, onAcknowledge }: LevelDowngradedAl
   }
 
   const levelColor = {
-    0: 'bg-red-900',
-    1: 'bg-red-800',
-    2: 'bg-orange-700',
-    3: 'bg-yellow-700',
-    4: 'bg-green-700',
+    0: 'bg-danger',
+    1: 'bg-danger/80',
+    2: 'bg-warn',
+    3: 'bg-warn/80',
+    4: 'bg-ok/80',
   }
 
   const levelName = {
@@ -52,25 +52,25 @@ export function LevelDowngradedAlert({ event, onAcknowledge }: LevelDowngradedAl
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70">
-      <div className="bg-gray-800 border-4 border-red-600 rounded-lg p-8 max-w-md animate-pulse">
+      <div className="bg-panel border-4 border-danger rounded-lg p-8 max-w-md animate-pulse">
         {/* Header */}
         <div className="mb-6">
-          <h2 className="text-3xl font-bold text-red-400 mb-2">⚠️ RISK LEVEL DOWNGRADED</h2>
-          <p className="text-gray-400 text-sm">Operational Response Required</p>
+          <h2 className="text-3xl font-bold text-danger mb-2">⚠️ RISK LEVEL DOWNGRADED</h2>
+          <p className="text-muted text-sm">Operational Response Required</p>
         </div>
 
         {/* Level Change */}
-        <div className="bg-gray-900 rounded p-4 mb-6">
+        <div className="bg-panel-2 rounded p-4 mb-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <p className="text-gray-500 text-sm">Previous Level</p>
+              <p className="text-muted text-sm">Previous Level</p>
               <div className={`${levelColor[event.previous_level as keyof typeof levelColor]} text-white font-bold py-2 px-4 rounded inline-block`}>
                 Level {event.previous_level} ({levelName[event.previous_level as keyof typeof levelName]})
               </div>
             </div>
             <span className="text-2xl">→</span>
             <div>
-              <p className="text-gray-500 text-sm">New Level</p>
+              <p className="text-muted text-sm">New Level</p>
               <div className={`${levelColor[event.new_level as keyof typeof levelColor]} text-white font-bold py-2 px-4 rounded inline-block`}>
                 Level {event.new_level} ({levelName[event.new_level as keyof typeof levelName]})
               </div>
@@ -79,18 +79,18 @@ export function LevelDowngradedAlert({ event, onAcknowledge }: LevelDowngradedAl
         </div>
 
         {/* Reason */}
-        <div className="bg-gray-900 rounded p-4 mb-6">
-          <p className="text-gray-500 text-sm mb-2">Reason</p>
-          <p className="text-white font-mono text-sm break-words">{event.reason}</p>
+        <div className="bg-panel-2 rounded p-4 mb-6">
+          <p className="text-muted text-sm mb-2">Reason</p>
+          <p className="text-text-strong font-mono text-sm break-words">{event.reason}</p>
         </div>
 
         {/* Affected Symbols */}
         {event.affected_symbols && event.affected_symbols.length > 0 && (
-          <div className="bg-gray-900 rounded p-4 mb-6">
-            <p className="text-gray-500 text-sm mb-2">Affected Symbols</p>
+          <div className="bg-panel-2 rounded p-4 mb-6">
+            <p className="text-muted text-sm mb-2">Affected Symbols</p>
             <div className="flex flex-wrap gap-2">
               {event.affected_symbols.map(symbol => (
-                <span key={symbol} className="bg-red-900 text-red-200 px-3 py-1 rounded text-sm">
+                <span key={symbol} className="bg-danger/20 text-danger px-3 py-1 rounded text-sm">
                   {symbol}
                 </span>
               ))}
@@ -99,15 +99,15 @@ export function LevelDowngradedAlert({ event, onAcknowledge }: LevelDowngradedAl
         )}
 
         {/* Audit Info */}
-        <div className="bg-gray-900 rounded p-4 mb-6">
+        <div className="bg-panel-2 rounded p-4 mb-6">
           <div className="grid grid-cols-2 gap-4 text-xs">
             <div>
-              <p className="text-gray-500 mb-1">Trace ID</p>
-              <p className="text-gray-300 font-mono break-all">{event.trace_id.substring(0, 16)}...</p>
+              <p className="text-muted mb-1">Trace ID</p>
+              <p className="text-text font-mono break-all">{event.trace_id.substring(0, 16)}...</p>
             </div>
             <div>
-              <p className="text-gray-500 mb-1">Timestamp</p>
-              <p className="text-gray-300 font-mono">{new Date(event.ts).toLocaleTimeString()}</p>
+              <p className="text-muted mb-1">Timestamp</p>
+              <p className="text-text font-mono">{new Date(event.ts).toLocaleTimeString()}</p>
             </div>
           </div>
         </div>
@@ -115,7 +115,7 @@ export function LevelDowngradedAlert({ event, onAcknowledge }: LevelDowngradedAl
         {/* Action Button */}
         <button
           onClick={handleAcknowledge}
-          className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded transition-colors"
+          className="w-full bg-danger hover:bg-danger/90 text-white font-bold py-3 px-4 rounded transition-colors"
         >
           ✓ Acknowledged
         </button>
