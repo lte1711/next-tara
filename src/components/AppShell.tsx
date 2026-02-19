@@ -1,7 +1,8 @@
 "use client";
 
 import React, { ReactNode } from 'react';
-import GlobalRiskBar, { RiskMode } from './GlobalRiskBar';
+import GlobalRiskBar from './GlobalRiskBar';
+import type { RiskMode } from '../types/risk';
 
 interface AppShellProps {
     children: ReactNode;

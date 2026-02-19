@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import AppShell from '@/components/AppShell';
 import Panel from '@/components/Panel';
-import { RiskMode } from '@/components/GlobalRiskBar';
+import type { RiskMode } from '@/types/risk';
 
 export default function InstitutionalThemeDemo() {
     const [riskMode, setRiskMode] = useState<RiskMode>('NORMAL');

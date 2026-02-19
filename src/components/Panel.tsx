@@ -6,9 +6,10 @@ interface PanelProps {
     title?: string;
     children: ReactNode;
     className?: string;
+    style?: React.CSSProperties;
 }
 
-export default function Panel({ title, children, className = '' }: PanelProps) {
+export default function Panel({ title, children, className = '', style }: PanelProps) {
     return (
         <div
             style={{
@@ -16,6 +17,7 @@ export default function Panel({ title, children, className = '' }: PanelProps) {
                 border: '1px solid var(--border)',
                 borderRadius: 'var(--radius)',
                 overflow: 'hidden',
+                ...style,
             }}
             className={className}
         >

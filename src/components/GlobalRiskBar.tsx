@@ -10,6 +10,7 @@ export interface GlobalRiskBarProps {
   lastUpdate?: string // ISO timestamp or human string
   riskEngineActive?: boolean
   killArmed?: boolean
+  message?: string;
 }
 
 const formatCurrency = (v: number) => {
@@ -30,6 +31,7 @@ export const GlobalRiskBar: React.FC<GlobalRiskBarProps> = ({
   lastUpdate = new Date().toLocaleTimeString('ko-KR'),
   riskEngineActive = true,
   killArmed = false,
+  message,
 }) => {
   const topBorderStyle: React.CSSProperties = {}
   if (mode === 'WARN') topBorderStyle.borderTop = `2px solid var(--warn)`

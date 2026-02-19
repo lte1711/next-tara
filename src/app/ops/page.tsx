@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CheckCircle2, XCircle, AlertCircle, Clock, TrendingUp } from "lucide-react";
+import type { HealthStatus, EvergreenStatus, HistoryPoint, AlertEvent, DataMode } from "@/types/domain";
 
 const OPS_TOKEN = process.env.NEXT_PUBLIC_OPS_TOKEN || "dev-ops-token-change-me";
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000") + "/api/ops";
@@ -28,8 +29,8 @@ export default function OpsPage() {
   // 안전 숫자 변환 헬퍼 (SSOT)
   const asNum = (v: any, fallback = 0) => typeof v === "number" && Number.isFinite(v) ? v : fallback;
   const [isClient, setIsClient] = useState(false);
-  const [health, setHealth] = useState<HealthStatus | null>(null);
-  const [status, setStatus] = useState<EvergreenStatus | null>(null);
+  const [health, setHealth] = useState<any>(null);
+  const [status, setStatus] = useState<any>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [stdoutLines, setStdoutLines] = useState<string[]>([]);
   const [stderrLines, setStderrLines] = useState<string[]>([]);
