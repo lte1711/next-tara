@@ -41,15 +41,15 @@ export function KillSwitchControlPanel({ isOn, onToggle }: KillSwitchControlPane
   }
 
   return (
-    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-      <h2 className="text-xl font-bold mb-4">Kill-Switch Control</h2>
+    <div className="bg-panel rounded-lg p-6 border border-border-subtle">
+      <h2 className="text-xl font-bold mb-4 text-text-strong">Kill-Switch Control</h2>
 
       <div className="space-y-4">
         {/* Current Status */}
-        <div className={`p-3 rounded ${isOn ? 'bg-red-900' : 'bg-green-900'}`}>
+        <div className={`p-3 rounded ${isOn ? 'bg-danger/10 border border-danger' : 'bg-ok/10 border border-ok'}`}>
           <div className="flex items-center gap-2">
-            <div className={`w-3 h-3 rounded-full ${isOn ? 'text-red-500' : 'text-green-500'}`}></div>
-            <span className={`font-mono text-sm ${isOn ? 'text-red-400' : 'text-green-400'}`}>
+            <div className={`w-3 h-3 rounded-full ${isOn ? 'bg-danger' : 'bg-ok'}`}></div>
+            <span className={`font-mono text-sm ${isOn ? 'text-danger' : 'text-ok'}`}>
               Current: {isOn ? 'ON' : 'OFF'}
             </span>
           </div>
@@ -57,7 +57,7 @@ export function KillSwitchControlPanel({ isOn, onToggle }: KillSwitchControlPane
 
         {/* Reason Input */}
         <div>
-          <label className="block text-sm text-gray-400 mb-2">
+          <label className="block text-sm text-muted mb-2">
             Reason (required)
           </label>
           <input
@@ -65,22 +65,22 @@ export function KillSwitchControlPanel({ isOn, onToggle }: KillSwitchControlPane
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             placeholder="e.g., Manual intervention, high volatility detected"
-            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 text-sm"
+            className="w-full bg-panel-2 border border-border rounded px-3 py-2 text-text placeholder-muted-dark text-sm"
             disabled={loading}
           />
         </div>
 
         {/* Error Message */}
         {error && (
-          <div className="p-3 rounded bg-red-900 border border-red-700">
-            <p className="text-red-300 text-sm">{error}</p>
+          <div className="p-3 rounded bg-danger/10 border border-danger">
+            <p className="text-danger text-sm">{error}</p>
           </div>
         )}
 
         {/* Audit ID */}
         {auditId && (
-          <div className="p-3 rounded bg-green-900 border border-green-700">
-            <p className="text-green-300 text-sm">
+          <div className="p-3 rounded bg-ok/10 border border-ok">
+            <p className="text-ok text-sm">
               <strong>Success!</strong> Audit ID: {auditId}
             </p>
           </div>
@@ -92,10 +92,10 @@ export function KillSwitchControlPanel({ isOn, onToggle }: KillSwitchControlPane
           disabled={loading}
           className={`w-full py-2 px-4 rounded font-bold transition-colors text-white ${
             loading
-              ? 'bg-gray-700 cursor-not-allowed'
+              ? 'bg-muted-dark cursor-not-allowed'
               : isOn
-              ? 'bg-yellow-600 hover:bg-yellow-700'
-              : 'bg-red-600 hover:bg-red-700'
+              ? 'bg-warn hover:bg-warn/80'
+              : 'bg-danger hover:bg-danger/80'
           }`}
         >
           {loading ? 'Processing...' : isOn ? 'Turn OFF' : 'Turn ON'}
