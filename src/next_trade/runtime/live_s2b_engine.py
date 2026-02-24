@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
 import time
 from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
@@ -33,6 +34,36 @@ from .execution_dryrun import DryRunExecutionAdapter
 from .execution_binance_testnet import BinanceTestnetAdapter
 from .risk_snapshot import RiskSnapshotProvider
 from .alerting import AlertManager, FileAlertSink, SlackWebhookSink
+
+
+# ============================================================================
+# Checkpoint Heartbeat (Daemon Thread - S5-1 Watchdog Support)
+# ============================================================================
+
+def _start_checkpoint_heartbeat(checkpoint_path: str, interval_sec: int = 10) -> None:
+    """
+    Start daemon thread to write checkpoint heartbeat every interval_sec.
+    This ensures watchdog can detect engine health even if async loop stalls.
+
+    Critical: This thread NEVER dies, even on exceptions (swallows errors).
+    """
+    p = Path(checkpoint_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+
+    def _worker():
+        while True:
+            try:
+                ts = time.time()
+                with p.open("a", encoding="utf-8") as f:
+                    f.write(f"{ts}\n")
+                    f.flush()
+                time.sleep(interval_sec)
+            except Exception:
+                # Never die: swallow exception and continue
+                time.sleep(interval_sec)
+
+    t = threading.Thread(target=_worker, name="checkpoint_heartbeat", daemon=True)
+    t.start()
 
 
 class PositionState(Enum):
@@ -153,10 +184,10 @@ class LiveS2BEngine:
         print(f"  → Two-Man Rule OK: {two_man_ok}")
 
         if two_man_ok:
-            print(f"  ✅ Using BinanceTestnetAdapter (REAL TESTNET ORDERS)")
+            print(f"  [OK] Using BinanceTestnetAdapter (REAL TESTNET ORDERS)")
             return BinanceTestnetAdapter(project_root=self.project_root)
         else:
-            print(f"  ℹ️  Fallback: DryRunExecutionAdapter (SIMULATED)")
+            print(f"  [INFO] Fallback: DryRunExecutionAdapter (SIMULATED)")
             return DryRunExecutionAdapter()
 
     async def run(self) -> None:
@@ -236,12 +267,33 @@ class LiveS2BEngine:
 
         Sends HEARTBEAT alert every heartbeat_interval_sec (10s in TEST_MODE, 60min in prod).
         Useful for detecting stale processes.
+        Also writes checkpoint file for watchdog monitoring.
         """
         print(f"[LiveS2B] Starting heartbeat loop (interval={self.heartbeat_interval_sec}s)...")
+
+        # Checkpoint file path for watchdog monitoring (must match watchdog's path)
+        checkpoint_file = self.project_root / "logs" / "runtime" / "checkpoint_log.txt"
+        checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write checkpoint immediately on startup (not waiting 1 hour)
+        try:
+            checkpoint_file.touch()
+            timestamp = datetime.now(timezone.utc).isoformat()
+            checkpoint_file.write_text(f"[CHECKPOINT] {timestamp}\n")
+        except Exception as e:
+            print(f"[LiveS2B] Warning: Failed to write initial checkpoint: {e}")
 
         while True:
             try:
                 await asyncio.sleep(self.heartbeat_interval_sec)
+
+                # Update checkpoint file for watchdog (proof of life)
+                try:
+                    checkpoint_file.touch()
+                    timestamp = datetime.now(timezone.utc).isoformat()
+                    checkpoint_file.write_text(f"[CHECKPOINT] {timestamp}\n")
+                except Exception as e:
+                    print(f"[LiveS2B] Warning: Failed to write checkpoint: {e}")
 
                 await self.alert.send(
                     event_type="HEARTBEAT",
@@ -677,13 +729,33 @@ class LiveS2BEngine:
 if __name__ == "__main__":
     import os
 
-    key = os.getenv("BINANCE_KEY", "")
-    secret = os.getenv("BINANCE_SECRET", "")
+    # ------------------------------------------------------------------------
+    # SSOT: Write engine PID to file (watchdog's SSOT source of truth)
+    # ------------------------------------------------------------------------
+    engine_pid = os.getpid()
+    project_root = Path(__file__).resolve().parents[3]
+    runtime_dir = project_root / "logs" / "runtime"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+
+    engine_pid_file = runtime_dir / "engine.pid"
+    try:
+        engine_pid_file.write_text(str(engine_pid), encoding="utf-8")
+        print(f"[ENGINE_PID_SSOT] ✅ Engine PID {engine_pid} written to {engine_pid_file}")
+    except Exception as e:
+        print(f"[ENGINE_PID_SSOT] ⚠️  Failed to write engine.pid: {e}")
+
+    # Start checkpoint heartbeat daemon thread BEFORE event loop (Phase 2 fix)
+    # This ensures checkpoint updates even if engine crashes before run() is called
+    checkpoint_log = runtime_dir / "checkpoint_log.txt"
+    _start_checkpoint_heartbeat(str(checkpoint_log), interval_sec=10)
+
+    binance_key = os.getenv("BINANCE_KEY", "")
+    binance_secret = os.getenv("BINANCE_SECRET", "")
 
     engine = LiveS2BEngine(
         project_root=Path(__file__).resolve().parents[3],
-        apikey=key,
-        secret=secret,
+        apikey=binance_key,
+        secret=binance_secret,
         testnet=True,
     )
 
