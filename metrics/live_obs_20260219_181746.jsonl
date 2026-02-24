@@ -1,0 +1,5 @@
+{"ts": 1771490375406, "risk_level": "CRITICAL", "kill_switch": true, "downgrade_level": 2, "reason": "manual_test", "trace_id": "kill-test", "recovery_count": 0 }
+{"ts": 1771523183088, "risk_level": "CRITICAL", "kill_switch": true, "downgrade_level": 2, "reason": "manual_test_2", "trace_id": "kill-test-2", "recovery_count": 0 }
+{"ts": 1771523244256, "risk_level": "CRITICAL", "kill_switch": true, "downgrade_level": 2, "reason": "manual_test_2", "trace_id": "kill-test-2", "recovery_count": 0 }
+{"reason": "manual_test_3", "kill": true, "type": "kill_switch", "ts": "2026-02-19T08:55:48.514590Z", "trace_id": "03142a8b-5cf6-4ddf-8af9-f22c13d643fb"}
+{"reason": "manual_test_3_release", "kill": false, "type": "kill_switch", "ts": "2026-02-19T08:55:53.616657Z", "trace_id": "bc08341f-db31-4644-99f9-fa43dd52a085"}

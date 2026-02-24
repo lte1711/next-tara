@@ -1,0 +1,2 @@
+{"ts": 1771495205991, "trace_id": "f7c46cc9-4d90-4bce-b214-c729ca11610a", "action": "kill_on", "reason": "ticket-kill-001-on", "actor_ip": null}
+{"ts": 1771495221448, "trace_id": "0a7e4a10-963e-47da-8ebb-9d05e5a7bc82", "action": "kill_off", "reason": "ticket-kill-001-off", "actor_ip": null}

@@ -178,6 +178,7 @@ def _new_trace_id() -> str:
 
 
 import os
+from next_trade.runtime.evergreen_runtime import run_runtime, set_broadcast_bus
 
 # queue maxsize can be controlled via OPS_BUS_QMAX env var for testing
 try:
@@ -186,20 +187,30 @@ except Exception:
     _qmax = 200
 bus = BroadcastBus(queue_maxsize=_qmax)
 
+# Inject bus into runtime
+set_broadcast_bus(bus)
+
 # For testing: keep references to intentionally-hung subscribers (do not consume)
 HUNG_SUBS: list[asyncio.Queue] = []
 
 _file_publisher_task: Optional[asyncio.Task] = None
 _ops_hb_task: Optional[asyncio.Task] = None
+_runtime_task: Optional[asyncio.Task] = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _file_publisher_task, _ops_hb_task
+    global _file_publisher_task, _ops_hb_task, _runtime_task
     # startup: start optional metrics file tailer task
     try:
         _file_publisher_task = asyncio.create_task(_metrics_file_publisher())
     except Exception:
         _file_publisher_task = None
+
+    # Start evergreen runtime
+    try:
+        _runtime_task = asyncio.create_task(run_runtime(), name="evergreen_runtime")
+    except Exception:
+        _runtime_task = None
 
     # DEV/LOCAL Heartbeat Publisher (OPS_EMIT_HEARTBEAT=1)
     emit = os.getenv("OPS_EMIT_HEARTBEAT", "0") == "1"
@@ -218,6 +229,13 @@ async def lifespan(app: FastAPI):
                 _file_publisher_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await _file_publisher_task
+        except Exception:
+            pass
+        try:
+            if _runtime_task:
+                _runtime_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await _runtime_task
         except Exception:
             pass
         try:

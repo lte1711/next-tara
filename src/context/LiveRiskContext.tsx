@@ -94,7 +94,7 @@ export const LiveRiskProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     let closed = false
     function connect() {
-      const ws = new WebSocket(`${WS.replace(/\/+$/,'')}/ws/events`)
+      const ws = new WebSocket(`${WS.replace(/\/+$/,'')}/api/ws/events`)
       wsRef.current = ws
 
       ws.onopen = () => {

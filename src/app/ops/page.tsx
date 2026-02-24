@@ -201,8 +201,17 @@ export default function OpsPage() {
     const ws = new WebSocket("ws://127.0.0.1:8000/ws/events");
     ws.onmessage = (ev) => {
       try {
-        const msg: unknown = JSON.parse(ev.data);
-        setEvents((prev) => [toOpsEvent(msg), ...prev].slice(0, 200));
+        const msg: unknown = JSON.parse(ev.data);        
+        // runtime_tick 타입 처리: total_ticks 업데이트
+        if (isRecord(msg) && msg.type === "runtime_tick") {
+          const tick = asNum(msg.data?.tick ?? msg.tick, 0);
+          setStatus((prev) => ({
+            ...(prev || {}),
+            total_ticks: tick,
+            last_update_ts: Date.now(),
+          }));
+        }
+                setEvents((prev) => [toOpsEvent(msg), ...prev].slice(0, 200));
       } catch {
         // ignore parse errors
       }
