@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from urllib.error import URLError
 from urllib.request import urlopen
 
@@ -10,6 +9,9 @@ ENDPOINTS = [
     "/api/v1/ops/state",
     "/api/v1/ops/positions",
     "/api/v1/ops/risks?limit=20",
+    "/api/v1/trading/orders?limit=5",
+    "/api/v1/trading/fills?limit=5",
+    "/api/v1/ledger/pnl",
 ]
 
 

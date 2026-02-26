@@ -14,7 +14,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from next_trade.execution.binance_testnet_adapter import BinanceTestnetAdapter
 
 from .routes_v1_dev import router as v1_dev_router
+from .routes_v1_ledger import router as v1_ledger_router
 from .routes_v1_ops import router as v1_ops_router
+from .routes_v1_trading import router as v1_trading_router
 
 app = FastAPI(title="NEXT-TRADE Investor API", version="1.0")
 
@@ -34,6 +36,8 @@ LEGACY_SUNSET = "2026-06-30"
 app.state.connections = connections
 app.include_router(v1_ops_router)
 app.include_router(v1_dev_router)
+app.include_router(v1_trading_router)
+app.include_router(v1_ledger_router)
 
 
 def _get_adapter() -> BinanceTestnetAdapter:
