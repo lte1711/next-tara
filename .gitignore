@@ -1,54 +1,27 @@
-<<<<<<< HEAD
-.env
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# next.js
+.next/
+out/
+build/
+
+# local/runtime
 logs/
 runs/
 evidence/
 *.log
-__pycache__/
-src/__pycache__/
-src/next_trade.egg-info/
-*.egg-info/
-docs/release_notes/
-docs/incidents/
-tools/
-var/
-src/next_trade/runtime/
-src/next_trade/core/
-nul
 
-# local/dev artifacts
-.env.local
-.next/
-node_modules/
-tsconfig.tsbuildinfo
+# local scratch
+test.json
+
+# testing/cache
+coverage/
 .pytest_cache/
 
-=======
-# dependencies
-node_modules
-.pnp
-.pnp.js
-
-# testing
-coverage
-
-# next.js
-.next
-out
-
-# production
-build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# local env files
+# env
 .env
 .env.local
 .env.development.local
@@ -60,17 +33,18 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+tsconfig.tsbuildinfo
 next-env.d.ts
 
-# --- UI evidence artifacts (do not commit) ---
-logs/*.html
-logs/*.zip
-logs/ui_institutional*.html
-logs/UI_*_SSR_EVIDENCE.zip
+# python leftovers (if any)
+__pycache__/
+src/__pycache__/
+*.egg-info/
 
-# keep README txt if needed, but ignore generated archives in evidence
-evidence/ui/*.zip
-
-# ignore local logs directory (UI evidence + dev logs)
-logs/
->>>>>>> feature/ui-stale-001
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+nul
