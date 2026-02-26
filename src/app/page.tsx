@@ -8,10 +8,25 @@ import {
   LevelDowngradedAlert,
   LevelDowngradedEvent,
 } from "@/components/LevelDowngradedAlert";
+import {
+  PnlCard,
+  ProgressCard,
+  TradesCard,
+} from "@/components/PhaseBVisibilityCards";
 import { PositionsCard } from "@/components/PositionsCard";
 import { RecentRisksTable } from "@/components/RecentRisksTable";
 import { useWebSocket, WSEvent } from "@/hooks/useWebSocket";
-import { apiClient, EngineState, Position, RiskEvent } from "@/lib/api";
+import {
+  apiClient,
+  ContractHealth,
+  ContractState,
+  EngineState,
+  Position,
+  RiskEvent,
+  V1FillItem,
+  V1OrderItem,
+  V1PnlResponse,
+} from "@/lib/api";
 import { useCallback, useEffect, useState } from "react";
 
 export default function Dashboard() {
@@ -21,6 +36,21 @@ export default function Dashboard() {
   const [loadingEngine, setLoadingEngine] = useState(true);
   const [loadingPositions, setLoadingPositions] = useState(true);
   const [loadingRisks, setLoadingRisks] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState(true);
+  const [loadingTrades, setLoadingTrades] = useState(true);
+  const [loadingPnl, setLoadingPnl] = useState(true);
+  const [progressError, setProgressError] = useState<string | null>(null);
+  const [tradesError, setTradesError] = useState<string | null>(null);
+  const [pnlError, setPnlError] = useState<string | null>(null);
+  const [contractHealth, setContractHealth] = useState<ContractHealth | null>(
+    null,
+  );
+  const [contractState, setContractState] = useState<ContractState | null>(
+    null,
+  );
+  const [orders, setOrders] = useState<V1OrderItem[]>([]);
+  const [fills, setFills] = useState<V1FillItem[]>([]);
+  const [pnl, setPnl] = useState<V1PnlResponse | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const showDevPanel = process.env.NODE_ENV === "development";
 
@@ -85,6 +115,56 @@ export default function Dashboard() {
       // Fail silent - risk history is optional
     } finally {
       setLoadingRisks(false);
+    }
+
+    try {
+      setLoadingProgress(true);
+      setProgressError(null);
+      const [healthData, stateData] = await Promise.all([
+        apiClient.getHealth(),
+        apiClient.getState(),
+      ]);
+      if (!healthData || !stateData) {
+        setProgressError("v1_progress_unavailable");
+      }
+      setContractHealth(healthData);
+      setContractState(stateData);
+    } catch {
+      setProgressError("v1_progress_error");
+    } finally {
+      setLoadingProgress(false);
+    }
+
+    try {
+      setLoadingTrades(true);
+      setTradesError(null);
+      const [ordersData, fillsData] = await Promise.all([
+        apiClient.getOrders(10),
+        apiClient.getFills(10),
+      ]);
+      if (!ordersData || !fillsData) {
+        setTradesError("v1_trades_unavailable");
+      }
+      setOrders(ordersData?.items ?? []);
+      setFills(fillsData?.items ?? []);
+    } catch {
+      setTradesError("v1_trades_error");
+    } finally {
+      setLoadingTrades(false);
+    }
+
+    try {
+      setLoadingPnl(true);
+      setPnlError(null);
+      const pnlData = await apiClient.getPnl();
+      if (!pnlData) {
+        setPnlError("v1_pnl_unavailable");
+      }
+      setPnl(pnlData);
+    } catch {
+      setPnlError("v1_pnl_error");
+    } finally {
+      setLoadingPnl(false);
     }
   }, []);
 
@@ -354,6 +434,31 @@ export default function Dashboard() {
 
         {/* B. Positions Card */}
         <PositionsCard positions={positions} loading={loadingPositions} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <ProgressCard
+          loading={loadingProgress}
+          error={progressError}
+          uptimeSec={contractState?.freshness.checkpoint_age_sec ?? 0}
+          sessionState={contractHealth?.status ?? "UNKNOWN"}
+          processedEvents={risks.length}
+          restartCount={contractState?.counters.restart_count ?? 0}
+          onRetry={loadData}
+        />
+        <TradesCard
+          loading={loadingTrades}
+          error={tradesError}
+          orders={orders}
+          fills={fills}
+          onRetry={loadData}
+        />
+        <PnlCard
+          loading={loadingPnl}
+          error={pnlError}
+          pnl={pnl}
+          onRetry={loadData}
+        />
       </div>
 
       {/* D. Kill-Switch Control Panel */}

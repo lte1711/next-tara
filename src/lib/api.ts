@@ -159,6 +159,58 @@ export interface DashboardSummary {
   window_sec: number;
 }
 
+export interface V1OrderItem {
+  order_id: string;
+  symbol: string;
+  side: string;
+  type: string;
+  status: string;
+  price: number;
+  qty: number;
+  ts: number;
+}
+
+export interface V1OrdersResponse {
+  items: V1OrderItem[];
+  count: number;
+  server_ts: string;
+  contract_version: "v1";
+}
+
+export interface V1FillItem {
+  trade_id: string;
+  order_id: string;
+  symbol: string;
+  side: string;
+  price: number;
+  qty: number;
+  fee: number;
+  ts: number;
+}
+
+export interface V1FillsResponse {
+  items: V1FillItem[];
+  count: number;
+  server_ts: string;
+  contract_version: "v1";
+}
+
+export interface V1EquityPoint {
+  ts: number;
+  equity: number;
+}
+
+export interface V1PnlResponse {
+  realized_pnl: number;
+  unrealized_pnl: number;
+  equity: number;
+  peak_equity: number;
+  worst_dd: number;
+  equity_curve: V1EquityPoint[];
+  server_ts: string;
+  contract_version: "v1";
+}
+
 export const apiClient = {
   async getHealth(): Promise<ContractHealth | null> {
     return safeGet<ContractHealth>(`${API_V1_BASE}/ops/health`);
@@ -228,6 +280,22 @@ export const apiClient = {
       trace_id: string;
       ts: number;
     }>(`${API_V1_BASE}/dev/emit-event`, payload);
+  },
+
+  async getOrders(limit: number = 20): Promise<V1OrdersResponse | null> {
+    return safeGet<V1OrdersResponse>(
+      `${API_V1_BASE}/trading/orders?limit=${limit}`,
+    );
+  },
+
+  async getFills(limit: number = 20): Promise<V1FillsResponse | null> {
+    return safeGet<V1FillsResponse>(
+      `${API_V1_BASE}/trading/fills?limit=${limit}`,
+    );
+  },
+
+  async getPnl(): Promise<V1PnlResponse | null> {
+    return safeGet<V1PnlResponse>(`${API_V1_BASE}/ledger/pnl`);
   },
 
   async toggleKillSwitch(

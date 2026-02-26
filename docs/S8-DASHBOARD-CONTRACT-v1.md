@@ -1,7 +1,7 @@
 # S8 Dashboard Contract v1
 
 문서번호: NEXT-TRADE-S8-CONTRACT-001
-상태: Draft v1 (Phase A 병행 운영)
+상태: Locked v1.1 (Phase B)
 포트 고정: UI=3001, API+WS=8100
 
 ## Overview
@@ -137,6 +137,74 @@ UI는 Contract Client(`src/lib/api.ts`)만 경유하며, 레거시 경로는 병
 }
 ```
 
+### GET /api/v1/trading/orders?limit=20
+
+최근 주문 내역 조회.
+
+```json
+{
+  "items": [
+    {
+      "order_id": "ORD-12345",
+      "symbol": "BTCUSDT",
+      "side": "BUY",
+      "type": "LIMIT",
+      "status": "FILLED",
+      "price": 52000.5,
+      "qty": 0.01,
+      "ts": 1708970000
+    }
+  ],
+  "count": 1,
+  "server_ts": "2026-02-26T02:00:00+00:00",
+  "contract_version": "v1"
+}
+```
+
+### GET /api/v1/trading/fills?limit=20
+
+최근 체결 내역 조회.
+
+```json
+{
+  "items": [
+    {
+      "trade_id": "TRD-67890",
+      "order_id": "ORD-12345",
+      "symbol": "BTCUSDT",
+      "side": "BUY",
+      "price": 52000.5,
+      "qty": 0.01,
+      "fee": 0.05,
+      "ts": 1708970005
+    }
+  ],
+  "count": 1,
+  "server_ts": "2026-02-26T02:00:00+00:00",
+  "contract_version": "v1"
+}
+```
+
+### GET /api/v1/ledger/pnl
+
+PnL/자산 상태 조회.
+
+```json
+{
+  "realized_pnl": 150.25,
+  "unrealized_pnl": -12.4,
+  "equity": 10137.85,
+  "peak_equity": 10200.0,
+  "worst_dd": -0.62,
+  "equity_curve": [
+    { "ts": 1708960000, "equity": 10000.0 },
+    { "ts": 1708970000, "equity": 10137.85 }
+  ],
+  "server_ts": "2026-02-26T02:00:00+00:00",
+  "contract_version": "v1"
+}
+```
+
 ## WS Events
 
 ### WS URL
@@ -175,7 +243,7 @@ UI는 Contract Client(`src/lib/api.ts`)만 경유하며, 레거시 경로는 병
 
 - 타임아웃: 클라이언트 기본 20초
 - 재시도: 읽기 GET은 최대 1회(네트워크 오류/5xx), 쓰기 POST는 무재시도
-- 404: Phase A 병행운영에서 레거시 fallback 허용
+- 404: Phase B에서는 레거시 fallback 금지 (guard로 차단)
 - 5xx: UI는 fail-soft(빈 데이터/경고 표시)
 
 오류 응답 권장 포맷:
@@ -193,7 +261,7 @@ UI는 Contract Client(`src/lib/api.ts`)만 경유하며, 레거시 경로는 병
 - `contract_version`은 REST/WS payload에 포함한다.
 - 호환 정책:
   - Phase A: `v1` 우선 + 레거시 fallback 허용
-  - Phase B: `v1` 강제, 레거시 호출 guard
+  - Phase B: `v1` 강제, 레거시 호출 guard + visibility 카드(v1 trading/ledger)
   - Phase C: 레거시 sunset 이후 제거
 
 ## Deprecation Table
