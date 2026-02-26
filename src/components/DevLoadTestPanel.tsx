@@ -1,95 +1,102 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
+import { apiClient } from "@/lib/api";
+import { useState } from "react";
 
 type DevLoadTestPanelProps = {
-  onEmit10kEvents?: () => void
-}
+  onEmit10kEvents?: () => void;
+};
 
-export function DevLoadTestPanel({ onEmit10kEvents }: DevLoadTestPanelProps): JSX.Element {
-  const [isRunning, setIsRunning] = useState(false)
-  const [eventsSent, setEventsSent] = useState(0)
-  const [droppedCount, setDroppedCount] = useState(0)
-  const [error, setError] = useState<string | null>(null)
+export function DevLoadTestPanel({
+  onEmit10kEvents,
+}: DevLoadTestPanelProps): JSX.Element {
+  const [isRunning, setIsRunning] = useState(false);
+  const [eventsSent, setEventsSent] = useState(0);
+  const [droppedCount, setDroppedCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   const handleEmit10k = async () => {
-    onEmit10kEvents?.()
-    setIsRunning(true)
-    setEventsSent(0)
-    setDroppedCount(0)
-    setError(null)
+    onEmit10kEvents?.();
+    setIsRunning(true);
+    setEventsSent(0);
+    setDroppedCount(0);
+    setError(null);
 
     try {
       // Simulate 10,000 event emissions
       const eventTypes = [
-        'RISK_TRIGGERED',
-        'ORDER_REJECTED',
-        'LEVEL_DOWNGRADED',
-        'LEVEL_RESTORED',
-        'SYSTEM_GUARD',
-        'AUDIT_LOG',
-      ]
+        "RISK_TRIGGERED",
+        "ORDER_REJECTED",
+        "LEVEL_DOWNGRADED",
+        "LEVEL_RESTORED",
+        "SYSTEM_GUARD",
+        "AUDIT_LOG",
+      ];
 
       for (let i = 0; i < 10000; i++) {
         try {
-          const eventType = eventTypes[i % eventTypes.length]
-          
-          // Emit to backend (assuming POST /api/dev/emit-event)
-          const response = await fetch('http://localhost:8000/api/dev/emit-event', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              event_type: eventType,
-              index: i,
-              total: 10000,
-            }),
-          })
+          const eventType = eventTypes[i % eventTypes.length];
 
-          if (!response.ok) {
-            setDroppedCount(prev => prev + 1)
+          const response = await apiClient.postEmitEvent({
+            event_type: eventType,
+            index: i,
+            total: 10000,
+          });
+
+          if (!response?.ok) {
+            setDroppedCount((prev) => prev + 1);
           }
-          setEventsSent(i + 1)
+          setEventsSent(i + 1);
 
           // Throttle to avoid overwhelming the connection
           if (i % 100 === 0) {
-            await new Promise(resolve => setTimeout(resolve, 10))
+            await new Promise((resolve) => setTimeout(resolve, 10));
           }
         } catch {
-          setDroppedCount(prev => prev + 1)
-          setEventsSent(i + 1)
+          setDroppedCount((prev) => prev + 1);
+          setEventsSent(i + 1);
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setIsRunning(false)
+      setIsRunning(false);
     }
-  }
+  };
 
   return (
     <div className="bg-panel border-2 border-warn rounded p-4 mb-4">
       {/* Header */}
       <div className="flex items-center gap-2 mb-4">
         <span className="text-warn text-lg">⚙️</span>
-        <h3 className="text-warn font-bold">DEV-ONLY: Load Test (10,000 Events)</h3>
+        <h3 className="text-warn font-bold">
+          DEV-ONLY: Load Test (10,000 Events)
+        </h3>
       </div>
 
       {/* Status */}
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div className="bg-panel-2 rounded p-3">
           <p className="text-muted text-xs mb-1">Events Sent</p>
-          <p className="text-text-strong font-mono text-lg">{eventsSent.toLocaleString()}</p>
+          <p className="text-text-strong font-mono text-lg">
+            {eventsSent.toLocaleString()}
+          </p>
         </div>
         <div className="bg-panel-2 rounded p-3">
           <p className="text-muted text-xs mb-1">Dropped</p>
-          <p className={`font-mono text-lg ${droppedCount > 0 ? 'text-danger' : 'text-ok'}`}>
+          <p
+            className={`font-mono text-lg ${droppedCount > 0 ? "text-danger" : "text-ok"}`}
+          >
             {droppedCount.toLocaleString()}
           </p>
         </div>
         <div className="bg-panel-2 rounded p-3">
           <p className="text-muted text-xs mb-1">Success Rate</p>
           <p className="text-text-strong font-mono text-lg">
-            {eventsSent > 0 ? (((eventsSent - droppedCount) / eventsSent) * 100).toFixed(1) : 0}%
+            {eventsSent > 0
+              ? (((eventsSent - droppedCount) / eventsSent) * 100).toFixed(1)
+              : 0}
+            %
           </p>
         </div>
       </div>
@@ -107,17 +114,20 @@ export function DevLoadTestPanel({ onEmit10kEvents }: DevLoadTestPanelProps): JS
         disabled={isRunning}
         className={`w-full py-3 px-4 rounded font-bold transition-colors ${
           isRunning
-            ? 'bg-panel-2 text-muted cursor-not-allowed'
-            : 'bg-warn hover:bg-warn/90 text-white'
+            ? "bg-panel-2 text-muted cursor-not-allowed"
+            : "bg-warn hover:bg-warn/90 text-white"
         }`}
       >
-        {isRunning ? `Emitting... (${eventsSent}/10,000)` : 'Emit 10,000 Events (Stress Test)'}
+        {isRunning
+          ? `Emitting... (${eventsSent}/10,000)`
+          : "Emit 10,000 Events (Stress Test)"}
       </button>
 
       {/* Info */}
       <p className="text-xs text-muted mt-3">
-        💡 Monitors: WS backpressure, UI responsiveness, reconnection behavior, WS_DROPPED audit logs
+        💡 Monitors: WS backpressure, UI responsiveness, reconnection behavior,
+        WS_DROPPED audit logs
       </p>
     </div>
-  )
+  );
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
 type Mode = 'NORMAL' | 'DOWNGRADE' | 'KILL' | 'UNKNOWN'
 
@@ -23,6 +23,7 @@ export type RiskState = {
 type LiveRiskContextValue = {
   state: RiskState
   events: RiskEvent[]
+  rawEvents: unknown[]
   connected: boolean
 }
 
@@ -80,30 +81,112 @@ function parseEvent(raw: unknown): RiskEvent {
   }
 }
 
+let singletonWs: WebSocket | null = null
+let singletonUrl = ''
+let subscriberCount = 0
+let reconnectTimer: number | null = null
+let closeTimer: number | null = null
+let backoffMs = 1000
+let closingIntent = false
+const messageSubscribers = new Set<(data: unknown) => void>()
+const statusSubscribers = new Set<(connected: boolean) => void>()
+
+const notifyConnected = (connected: boolean) => {
+  statusSubscribers.forEach((fn) => fn(connected))
+}
+
+const getDefaultWsUrl = () => {
+  if (typeof window === 'undefined') return ''
+  const base = process.env.NEXT_PUBLIC_API_WS || 'ws://127.0.0.1:8100'
+  return `${base.replace(/\/+$/, '')}/ws/events`
+}
+
+const connectSingleton = (url: string) => {
+  if (!url) return
+  if (singletonWs && (singletonWs.readyState === WebSocket.OPEN || singletonWs.readyState === WebSocket.CONNECTING)) {
+    return
+  }
+
+  closingIntent = false
+  console.log('[WS_CONNECT]', typeof window !== 'undefined' ? window.location.pathname : 'server', Date.now())
+
+  const ws = new WebSocket(url)
+  singletonWs = ws
+  console.log('[WS_STATE]', ws.readyState)
+
+  ws.onopen = () => {
+    backoffMs = 1000
+    notifyConnected(true)
+  }
+
+  ws.onmessage = (ev) => {
+    let parsed: unknown = ev.data
+    try {
+      parsed = JSON.parse(ev.data)
+    } catch {
+      parsed = ev.data
+    }
+    messageSubscribers.forEach((fn) => fn(parsed))
+  }
+
+  ws.onclose = () => {
+    if (singletonWs === ws) singletonWs = null
+    notifyConnected(false)
+    if (closingIntent || subscriberCount === 0) return
+    if (reconnectTimer) window.clearTimeout(reconnectTimer)
+    reconnectTimer = window.setTimeout(() => connectSingleton(url), backoffMs)
+    backoffMs = Math.min(backoffMs * 2, 15000)
+  }
+
+  ws.onerror = () => {
+    // ignore: onclose handles reconnect
+  }
+}
+
+export const subscribeLiveRisk = (
+  onMessage: (data: unknown) => void,
+  onStatus?: (connected: boolean) => void
+) => {
+  subscriberCount += 1
+  messageSubscribers.add(onMessage)
+  if (onStatus) statusSubscribers.add(onStatus)
+
+  if (closeTimer) {
+    window.clearTimeout(closeTimer)
+    closeTimer = null
+  }
+
+  const url = getDefaultWsUrl()
+  if (url && singletonUrl !== url) singletonUrl = url
+  connectSingleton(singletonUrl)
+
+  return () => {
+    messageSubscribers.delete(onMessage)
+    if (onStatus) statusSubscribers.delete(onStatus)
+    subscriberCount = Math.max(0, subscriberCount - 1)
+    if (subscriberCount === 0) {
+      closingIntent = true
+      if (reconnectTimer) window.clearTimeout(reconnectTimer)
+      closeTimer = window.setTimeout(() => {
+        if (subscriberCount === 0 && singletonWs) {
+          singletonWs.close(1000)
+          singletonWs = null
+        }
+      }, 500)
+    }
+  }
+}
+
 export const LiveRiskProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<RiskState>({ mode: 'UNKNOWN' })
   const [events, setEvents] = useState<RiskEvent[]>([])
+  const [rawEvents, setRawEvents] = useState<unknown[]>([])
   const [connected, setConnected] = useState(false)
-  const wsRef = useRef<WebSocket | null>(null)
-  const reconnectRef = useRef<number | null>(null)
-
-  const WS = typeof window !== 'undefined' ? process.env.NEXT_PUBLIC_API_WS || 'ws://127.0.0.1:8000' : ''
 
   useEffect(() => {
-    if (!WS) return
-
-    let closed = false
-    function connect() {
-      const ws = new WebSocket(`${WS.replace(/\/+$/,'')}/ws/events`)
-      wsRef.current = ws
-
-      ws.onopen = () => {
-        setConnected(true)
-        // optional: fetch snapshot via HTTP here if desired
-      }
-
-      ws.onmessage = (ev) => {
-        const parsed = parseEvent(ev.data)
+    const unsubscribe = subscribeLiveRisk((raw) => {
+      setRawEvents((e) => [raw, ...e].slice(0, 200))
+      const parsed = parseEvent(raw)
         // keep latest state derived from event types
         if (parsed.type === 'risk_state' || parsed.type === 'risk_update') {
           const p = parsed.payload ?? (isRecord(parsed) ? parsed : {})
@@ -130,33 +213,15 @@ export const LiveRiskProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             reason: typeof (p as Record<string, unknown>).reason === 'string' ? (p as Record<string, unknown>).reason as string : s.reason,
           }))
         }
-
-        setEvents((e) => [{ ...parsed, time: new Date().toISOString() }, ...e].slice(0, 200))
-      }
-
-      ws.onclose = () => {
-        setConnected(false)
-        if (!closed) {
-          // simple reconnect backoff
-          reconnectRef.current = window.setTimeout(() => connect(), 2000)
-        }
-      }
-
-      ws.onerror = () => {
-        // errors will cause close and reconnect
-      }
-    }
-
-    connect()
+      setEvents((e) => [{ ...parsed, time: new Date().toISOString() }, ...e].slice(0, 200))
+    }, setConnected)
 
     return () => {
-      closed = true
-      if (reconnectRef.current) window.clearTimeout(reconnectRef.current)
-      if (wsRef.current) wsRef.current.close()
+      unsubscribe()
     }
-  }, [WS])
+  }, [])
 
-  const value = useMemo(() => ({ state, events, connected }), [state, events, connected])
+  const value = useMemo(() => ({ state, events, rawEvents, connected }), [state, events, rawEvents, connected])
 
   return <LiveRiskContext.Provider value={value}>{children}</LiveRiskContext.Provider>
 }

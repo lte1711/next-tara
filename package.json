@@ -4,9 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "dev:safe": "powershell -ExecutionPolicy Bypass -File scripts/start-dev.ps1",
+    "contract:guard": "node scripts/no-legacy-check.mjs",
+    "build": "npm run contract:guard && next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "contract:check": "node tools/contract_check.mjs"
   },
   "dependencies": {
     "@radix-ui/react-progress": "^1.1.8",

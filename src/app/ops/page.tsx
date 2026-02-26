@@ -1,17 +1,34 @@
-
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CheckCircle2, XCircle, AlertCircle, Clock, TrendingUp } from "lucide-react";
-import type { HistoryPoint, AlertEvent, DataMode, Event } from "@/types/domain";
+import { subscribeLiveRisk } from "@/context/LiveRiskContext";
+import type { AlertEvent, DataMode, Event, HistoryPoint } from "@/types/domain";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  TrendingUp,
+  XCircle,
+} from "lucide-react";
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
-const OPS_TOKEN = process.env.NEXT_PUBLIC_OPS_TOKEN || "dev-ops-token-change-me";
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000") + "/api/ops";
+const OPS_TOKEN =
+  process.env.NEXT_PUBLIC_OPS_TOKEN || "dev-ops-token-change-me";
+const API_BASE =
+  (process.env.NEXT_PUBLIC_API_URL ||
+    process.env.NEXT_PUBLIC_API_HTTP ||
+    "http://127.0.0.1:8100") + "/api/ops";
 
 type OpsHistoryPoint = HistoryPoint & {
   runtime_h?: number;
@@ -21,15 +38,20 @@ type OpsHistoryPoint = HistoryPoint & {
   [k: string]: unknown;
 };
 
+type InvestorAccount = Record<string, unknown>;
+type TradeRow = Record<string, unknown>;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
 const asNum = (v: unknown, fallback = 0) =>
   typeof v === "number" && Number.isFinite(v) ? v : fallback;
 
-const asString = (v: unknown, fallback = "") => (typeof v === "string" ? v : fallback);
+const asString = (v: unknown, fallback = "") =>
+  typeof v === "string" ? v : fallback;
 
-const getRecord = (value: unknown): Record<string, unknown> => (isRecord(value) ? value : {});
+const getRecord = (value: unknown): Record<string, unknown> =>
+  isRecord(value) ? value : {};
 
 // 다양한 로그 응답 포맷 흡수
 const pickLines = (j: unknown): string[] => {
@@ -39,7 +61,8 @@ const pickLines = (j: unknown): string[] => {
   if (Array.isArray(j.stdout)) return j.stdout.map(String);
   if (Array.isArray(j.stderr)) return j.stderr.map(String);
   if (typeof j.text === "string") return j.text.split("\n").filter(Boolean);
-  if (typeof j.content === "string") return j.content.split("\n").filter(Boolean);
+  if (typeof j.content === "string")
+    return j.content.split("\n").filter(Boolean);
   return [];
 };
 
@@ -54,20 +77,75 @@ export default function OpsPage() {
   const [, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<OpsHistoryPoint[]>([]);
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
+  const [account, setAccount] = useState<InvestorAccount | null>(null);
+  const [trades, setTrades] = useState<TradeRow[]>([]);
   const statusRecord = status ?? {};
   const statusValue = asString(statusRecord.status);
   const statusValueLower = statusValue ? statusValue.toLowerCase() : "";
+
+  const statBoxStyle: React.CSSProperties = {
+    background: "#111",
+    padding: 12,
+    borderRadius: 8,
+    textAlign: "center",
+  };
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
+  useEffect(() => {
+    const loadInvestor = async () => {
+      try {
+        const acc = await fetch(
+          "http://127.0.0.1:8100/api/investor/account",
+        ).then((r) => r.json());
+        const tr = await fetch(
+          "http://127.0.0.1:8100/api/investor/trades/BTCUSDT",
+        ).then((r) => r.json());
+
+        setAccount(isRecord(acc) ? acc : null);
+        setTrades(Array.isArray(tr) ? tr.filter(isRecord).slice(0, 10) : []);
+      } catch (e) {
+        console.error("Investor fetch error:", e);
+      }
+    };
+
+    loadInvestor();
+    return () => {};
+  }, []);
+
+  const totalRealized = trades.reduce(
+    (sum, t) => sum + parseFloat(String(t["realizedPnl"] ?? 0)),
+    0,
+  );
+  const now = Date.now();
+  const last24h = trades
+    .filter((t) => now - Number(t["time"] ?? 0) < 24 * 60 * 60 * 1000)
+    .reduce((sum, t) => sum + parseFloat(String(t["realizedPnl"] ?? 0)), 0);
+  const winCount = trades.filter(
+    (t) => parseFloat(String(t["realizedPnl"])) > 0,
+  ).length;
+  const lossCount = trades.filter(
+    (t) => parseFloat(String(t["realizedPnl"])) < 0,
+  ).length;
+  const winRate =
+    trades.length > 0
+      ? ((winCount / (winCount + lossCount)) * 100).toFixed(2)
+      : "0";
 
   // fetchData: 모든 데이터 fetch (프록시 경로 사용, 10초마다 자동 갱신)
   const fetchData = useCallback(async () => {
     try {
       const headers = { "X-OPS-TOKEN": OPS_TOKEN };
-      const [healthRes, statusRes, historyRes, alertsRes, stdoutRes, stderrRes] = await Promise.all([
+      const [
+        healthRes,
+        statusRes,
+        historyRes,
+        alertsRes,
+        stdoutRes,
+        stderrRes,
+      ] = await Promise.all([
         fetch(`/api/ops/health`, { headers }),
         fetch(`/api/ops/evergreen/status`, { headers }),
         fetch(`/api/ops/history?hours=24`, { headers }),
@@ -80,14 +158,24 @@ export default function OpsPage() {
       const rawStatus: unknown = statusRes?.ok ? await statusRes.json() : null;
       const healthObj = getRecord(rawHealth);
       const statusObj = getRecord(rawStatus);
-      const statusText = (healthObj.service_status ?? statusObj.status ?? healthObj.status ?? "down");
-      const service_status = typeof statusText === "string" ? statusText.toLowerCase() : "down";
-      const last_heartbeat_age_sec =
-        asNum(healthObj.last_heartbeat_age_sec ?? statusObj.heartbeat_sec_ago ?? statusObj.last_heartbeat_age_sec);
+      const statusText =
+        healthObj.service_status ??
+        statusObj.status ??
+        healthObj.status ??
+        "down";
+      const service_status =
+        typeof statusText === "string" ? statusText.toLowerCase() : "down";
+      const last_heartbeat_age_sec = asNum(
+        healthObj.last_heartbeat_age_sec ??
+          statusObj.heartbeat_sec_ago ??
+          statusObj.last_heartbeat_age_sec,
+      );
       setHealth({
         service_status,
         last_heartbeat_age_sec,
-        last_heartbeat_ts: asNum(healthObj.last_heartbeat_ts ?? statusObj.last_heartbeat_ts),
+        last_heartbeat_ts: asNum(
+          healthObj.last_heartbeat_ts ?? statusObj.last_heartbeat_ts,
+        ),
         grade: asString(statusObj.grade ?? healthObj.grade) || undefined,
         mission: asString(statusObj.mission ?? healthObj.mission) || undefined,
         next_milestone: asString(healthObj.next_milestone) || undefined,
@@ -105,22 +193,33 @@ export default function OpsPage() {
           const points = Array.isArray(dataObj.points)
             ? dataObj.points
             : Array.isArray(dataObj.history)
-            ? dataObj.history
-            : [];
+              ? dataObj.history
+              : [];
           hist = points.map((p) => {
             const point = getRecord(p);
             const runtime_h = asNum(
               point.runtime_h ??
-                (typeof point.cumulative_runtime_sec === "number" ? point.cumulative_runtime_sec / 3600 : undefined)
+                (typeof point.cumulative_runtime_sec === "number"
+                  ? point.cumulative_runtime_sec / 3600
+                  : undefined),
             );
-            const value = asNum(point.value ?? point.progress_168h_pct ?? point.progress ?? runtime_h);
+            const value = asNum(
+              point.value ??
+                point.progress_168h_pct ??
+                point.progress ??
+                runtime_h,
+            );
             return {
               ts: asNum(point.ts),
               value,
               runtime_h,
               cumulative_runtime_sec:
-                typeof point.cumulative_runtime_sec === "number" ? point.cumulative_runtime_sec : undefined,
-              progress_168h_pct: asNum(point.progress_168h_pct ?? point.progress),
+                typeof point.cumulative_runtime_sec === "number"
+                  ? point.cumulative_runtime_sec
+                  : undefined,
+              progress_168h_pct: asNum(
+                point.progress_168h_pct ?? point.progress,
+              ),
               restart_count: asNum(point.restart_count),
             };
           });
@@ -141,20 +240,28 @@ export default function OpsPage() {
           const items = Array.isArray(dataObj.items)
             ? dataObj.items
             : Array.isArray(dataObj.alerts)
-            ? dataObj.alerts
-            : [];
+              ? dataObj.alerts
+              : [];
           alertsList = items.map((item) => {
             const alertObj = getRecord(item);
             const level = asString(alertObj.level);
             const severity = asString(alertObj.severity);
             return {
               ts: typeof alertObj.ts === "number" ? alertObj.ts : undefined,
-              level: level === "info" || level === "warn" || level === "error" ? level : undefined,
+              level:
+                level === "info" || level === "warn" || level === "error"
+                  ? level
+                  : undefined,
               message: asString(alertObj.message) || undefined,
               msg: asString(alertObj.msg) || undefined,
               code: asString(alertObj.code) || undefined,
               event: asString(alertObj.event) || undefined,
-              severity: severity === "info" || severity === "warn" || severity === "error" ? severity : undefined,
+              severity:
+                severity === "info" ||
+                severity === "warn" ||
+                severity === "error"
+                  ? severity
+                  : undefined,
             };
           });
         }
@@ -165,14 +272,16 @@ export default function OpsPage() {
 
       // stdout/stderr 채우기
       try {
-        if (stdoutRes && stdoutRes.ok) setStdoutLines(pickLines(await stdoutRes.json()));
+        if (stdoutRes && stdoutRes.ok)
+          setStdoutLines(pickLines(await stdoutRes.json()));
         else setStdoutLines([]);
       } catch {
         setStdoutLines([]);
       }
 
       try {
-        if (stderrRes && stderrRes.ok) setStderrLines(pickLines(await stderrRes.json()));
+        if (stderrRes && stderrRes.ok)
+          setStderrLines(pickLines(await stderrRes.json()));
         else setStderrLines([]);
       } catch {
         setStderrLines([]);
@@ -182,34 +291,65 @@ export default function OpsPage() {
     }
   }, []);
 
-  const toOpsEvent = (value: unknown): Event => {
+  const toOpsEvent = useCallback((value: unknown): Event => {
     const obj = getRecord(value);
     const severity = asString(obj.severity);
     return {
       ...obj,
       ts: typeof obj.ts === "number" ? obj.ts : undefined,
       event: typeof obj.event === "string" ? obj.event : undefined,
-      severity: severity === "info" || severity === "warn" || severity === "error" ? severity : undefined,
+      severity:
+        severity === "info" || severity === "warn" || severity === "error"
+          ? severity
+          : undefined,
       cumulative_runtime_sec:
-        typeof obj.cumulative_runtime_sec === "number" ? obj.cumulative_runtime_sec : undefined,
-      restart_count: typeof obj.restart_count === "number" ? obj.restart_count : undefined,
+        typeof obj.cumulative_runtime_sec === "number"
+          ? obj.cumulative_runtime_sec
+          : undefined,
+      restart_count:
+        typeof obj.restart_count === "number" ? obj.restart_count : undefined,
     };
-  };
+  }, []);
 
-  // Recent Events: WS(events) 실시간 수신
+  // Recent Events: LiveRiskContext 싱글톤 WS 구독
   useEffect(() => {
-    const ws = new WebSocket("ws://127.0.0.1:8000/ws/events");
-    ws.onmessage = (ev) => {
+    const unsubscribe = subscribeLiveRisk((msg) => {
       try {
-        const msg: unknown = JSON.parse(ev.data);
+        if (isRecord(msg) && msg.type === "runtime_tick") {
+          const data = isRecord(msg["data"]) ? msg["data"] : undefined;
+          const tick = asNum(
+            (isRecord(data) ? data["tick"] : undefined) ?? msg["tick"],
+            0,
+          );
+          setStatus((prev) => ({
+            ...(prev || {}),
+            total_ticks: tick,
+            last_update_ts: Date.now(),
+          }));
+        }
+
+        if (isRecord(msg) && msg.e === "ORDER_TRADE_UPDATE") {
+          const o = getRecord(msg.o);
+          const trade = {
+            time: o.T ?? (msg as Record<string, unknown>).T ?? Date.now(),
+            side: o.S ?? o.side ?? "-",
+            price: o.ap ?? o.price ?? "-",
+            qty: o.q ?? o.origQty ?? o.quantity ?? "-",
+            realizedPnl: o.rp ?? o.realizedPnl ?? "0",
+          };
+          setTrades((prev) => [trade, ...prev].slice(0, 50));
+        }
+
         setEvents((prev) => [toOpsEvent(msg), ...prev].slice(0, 200));
       } catch {
         // ignore parse errors
       }
+    });
+
+    return () => {
+      unsubscribe();
     };
-    ws.onerror = () => {};
-    return () => ws.close();
-  }, []);
+  }, [toOpsEvent]);
 
   useEffect(() => {
     fetchData();
@@ -228,14 +368,16 @@ export default function OpsPage() {
   const getGradeBadge = () => {
     const grade = asString(health?.grade, "BRONZE") || "BRONZE";
     const gradeColor: Record<string, string> = {
-      "EVERGREEN": "bg-emerald-700 border-emerald-900",
-      "GOLD": "bg-yellow-400 text-yellow-900 border-yellow-600",
-      "SILVER": "bg-slate-400 text-slate-900 border-slate-500",
-      "BRONZE": "bg-orange-400 text-orange-900 border-orange-600"
+      EVERGREEN: "bg-emerald-700 border-emerald-900",
+      GOLD: "bg-yellow-400 text-yellow-900 border-yellow-600",
+      SILVER: "bg-slate-400 text-slate-900 border-slate-500",
+      BRONZE: "bg-orange-400 text-orange-900 border-orange-600",
     };
     const color = gradeColor[grade] || "bg-gray-300 border-gray-400";
     return (
-      <span className={`inline-flex items-center gap-1 ${color} text-xs font-bold px-3 py-1 rounded-full shadow-sm border ml-2`}>
+      <span
+        className={`inline-flex items-center gap-1 ${color} text-xs font-bold px-3 py-1 rounded-full shadow-sm border ml-2`}
+      >
         <span className="text-lg">🏆</span> {grade} GRADE
       </span>
     );
@@ -256,38 +398,52 @@ export default function OpsPage() {
       <span className="ml-4 text-xs font-bold text-blue-700 bg-blue-100 px-2 py-1 rounded">
         168H MISSION
         {nextMilestone ? (
-          <> | Next: <span className="text-blue-900">{nextMilestone}</span>{etaStr}</>
+          <>
+            {" "}
+            | Next: <span className="text-blue-900">{nextMilestone}</span>
+            {etaStr}
+          </>
         ) : null}
       </span>
     );
   };
 
-
   useEffect(() => {
     const fetchData = async () => {
       try {
         const headers = { "X-OPS-TOKEN": OPS_TOKEN };
-        const [healthRes, statusRes, historyRes, alertsRes] = await Promise.all([
-          fetch(`${API_BASE}/health`, { headers }),
-          fetch(`${API_BASE}/evergreen/status`, { headers }),
-          fetch(`${API_BASE}/history?hours=24`, { headers }),
-          fetch(`${API_BASE}/alerts?limit=50`, { headers }),
-        ]);
+        const [healthRes, statusRes, historyRes, alertsRes] = await Promise.all(
+          [
+            fetch(`${API_BASE}/health`, { headers }),
+            fetch(`${API_BASE}/evergreen/status`, { headers }),
+            fetch(`${API_BASE}/history?hours=24`, { headers }),
+            fetch(`${API_BASE}/alerts?limit=50`, { headers }),
+          ],
+        );
 
         const rawHealth: unknown = healthRes.ok ? await healthRes.json() : null;
         const rawStatus: unknown = statusRes.ok ? await statusRes.json() : null;
         const healthObj = getRecord(rawHealth);
         const statusObj = getRecord(rawStatus);
-        const statusText = (healthObj.service_status ?? statusObj.status ?? healthObj.status ?? "down");
-        const service_status = typeof statusText === "string" ? statusText.toLowerCase() : "down";
-        const last_heartbeat_age_sec =
-          asNum(healthObj.last_heartbeat_age_sec ?? statusObj.last_heartbeat_age_sec);
+        const statusText =
+          healthObj.service_status ??
+          statusObj.status ??
+          healthObj.status ??
+          "down";
+        const service_status =
+          typeof statusText === "string" ? statusText.toLowerCase() : "down";
+        const last_heartbeat_age_sec = asNum(
+          healthObj.last_heartbeat_age_sec ?? statusObj.last_heartbeat_age_sec,
+        );
         setHealth({
           service_status,
           last_heartbeat_age_sec,
-          last_heartbeat_ts: asNum(healthObj.last_heartbeat_ts ?? statusObj.last_heartbeat_ts),
+          last_heartbeat_ts: asNum(
+            healthObj.last_heartbeat_ts ?? statusObj.last_heartbeat_ts,
+          ),
           grade: asString(statusObj.grade ?? healthObj.grade) || undefined,
-          mission: asString(statusObj.mission ?? healthObj.mission) || undefined,
+          mission:
+            asString(statusObj.mission ?? healthObj.mission) || undefined,
           next_milestone: asString(healthObj.next_milestone) || undefined,
           next_milestone_eta: healthObj.next_milestone_eta ?? null,
           last_update_ts: statusObj.last_update_ts ?? healthObj.last_update_ts,
@@ -303,22 +459,33 @@ export default function OpsPage() {
             const points = Array.isArray(dataObj.points)
               ? dataObj.points
               : Array.isArray(dataObj.history)
-              ? dataObj.history
-              : [];
+                ? dataObj.history
+                : [];
             hist = points.map((p) => {
               const point = getRecord(p);
               const runtime_h = asNum(
                 point.runtime_h ??
-                  (typeof point.cumulative_runtime_sec === "number" ? point.cumulative_runtime_sec / 3600 : undefined)
+                  (typeof point.cumulative_runtime_sec === "number"
+                    ? point.cumulative_runtime_sec / 3600
+                    : undefined),
               );
-              const value = asNum(point.value ?? point.progress_168h_pct ?? point.progress ?? runtime_h);
+              const value = asNum(
+                point.value ??
+                  point.progress_168h_pct ??
+                  point.progress ??
+                  runtime_h,
+              );
               return {
                 ts: asNum(point.ts),
                 value,
                 runtime_h,
                 cumulative_runtime_sec:
-                  typeof point.cumulative_runtime_sec === "number" ? point.cumulative_runtime_sec : undefined,
-                progress_168h_pct: asNum(point.progress_168h_pct ?? point.progress),
+                  typeof point.cumulative_runtime_sec === "number"
+                    ? point.cumulative_runtime_sec
+                    : undefined,
+                progress_168h_pct: asNum(
+                  point.progress_168h_pct ?? point.progress,
+                ),
                 restart_count: asNum(point.restart_count),
               };
             });
@@ -337,20 +504,28 @@ export default function OpsPage() {
             const items = Array.isArray(dataObj.items)
               ? dataObj.items
               : Array.isArray(dataObj.alerts)
-              ? dataObj.alerts
-              : [];
+                ? dataObj.alerts
+                : [];
             alertsList = items.map((item) => {
               const alertObj = getRecord(item);
               const level = asString(alertObj.level);
               const severity = asString(alertObj.severity);
               return {
                 ts: typeof alertObj.ts === "number" ? alertObj.ts : undefined,
-                level: level === "info" || level === "warn" || level === "error" ? level : undefined,
+                level:
+                  level === "info" || level === "warn" || level === "error"
+                    ? level
+                    : undefined,
                 message: asString(alertObj.message) || undefined,
                 msg: asString(alertObj.msg) || undefined,
                 code: asString(alertObj.code) || undefined,
                 event: asString(alertObj.event) || undefined,
-                severity: severity === "info" || severity === "warn" || severity === "error" ? severity : undefined,
+                severity:
+                  severity === "info" ||
+                  severity === "warn" ||
+                  severity === "error"
+                    ? severity
+                    : undefined,
               };
             });
           }
@@ -371,9 +546,13 @@ export default function OpsPage() {
 
   const getDataMode = (): DataMode => {
     if (!health) return "DOWN";
-    const age = typeof health.last_heartbeat_age_sec === "number" ? health.last_heartbeat_age_sec : null;
+    const age =
+      typeof health.last_heartbeat_age_sec === "number"
+        ? health.last_heartbeat_age_sec
+        : null;
     if (age === null) return "DOWN";
-    if (age < 30 && asString(health.service_status) === "running") return "LIVE";
+    if (age < 30 && asString(health.service_status) === "running")
+      return "LIVE";
     if (age < 120) return "STALE";
     return "DOWN";
   };
@@ -404,13 +583,19 @@ export default function OpsPage() {
   };
 
   const getStatusBadge = (status: string) => {
-    const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+    const variants: Record<
+      string,
+      "default" | "secondary" | "destructive" | "outline"
+    > = {
       running: "default",
       stale: "secondary",
       down: "destructive",
       error: "destructive",
     };
-    const key = typeof status === "string" && status.length > 0 ? status.toLowerCase() : "unknown";
+    const key =
+      typeof status === "string" && status.length > 0
+        ? status.toLowerCase()
+        : "unknown";
     const label = key.toUpperCase();
     return (
       <Badge variant={variants[key] || "outline"} className="text-sm">
@@ -422,28 +607,49 @@ export default function OpsPage() {
   // Severity 색상/아이콘
   const getSeverityColor = (sev: string) => {
     switch (sev) {
-      case "critical": return "bg-pink-600 text-white border-pink-800";
-      case "error": return "bg-red-600 text-white border-red-800";
-      case "warn": return "bg-amber-200 text-amber-900 border-amber-400";
-      case "success": return "bg-emerald-100 text-emerald-900 border-emerald-400";
-      case "info": return "bg-slate-100 text-slate-800 border-slate-300";
-      default: return "bg-gray-200 text-gray-700 border-gray-300";
+      case "critical":
+        return "bg-pink-600 text-white border-pink-800";
+      case "error":
+        return "bg-red-600 text-white border-red-800";
+      case "warn":
+        return "bg-amber-200 text-amber-900 border-amber-400";
+      case "success":
+        return "bg-emerald-100 text-emerald-900 border-emerald-400";
+      case "info":
+        return "bg-slate-100 text-slate-800 border-slate-300";
+      default:
+        return "bg-gray-200 text-gray-700 border-gray-300";
     }
   };
   const getSeverityIcon = (sev: string) => {
     switch (sev) {
-      case "critical": return <XCircle className="inline w-4 h-4 mr-1 text-pink-100 align-middle" />;
-      case "error": return <XCircle className="inline w-4 h-4 mr-1 text-red-100 align-middle" />;
-      case "warn": return <AlertCircle className="inline w-4 h-4 mr-1 text-amber-500 align-middle" />;
-      case "success": return <CheckCircle2 className="inline w-4 h-4 mr-1 text-emerald-600 align-middle" />;
-      case "info": return <Clock className="inline w-4 h-4 mr-1 text-slate-400 align-middle" />;
-      default: return null;
+      case "critical":
+        return (
+          <XCircle className="inline w-4 h-4 mr-1 text-pink-100 align-middle" />
+        );
+      case "error":
+        return (
+          <XCircle className="inline w-4 h-4 mr-1 text-red-100 align-middle" />
+        );
+      case "warn":
+        return (
+          <AlertCircle className="inline w-4 h-4 mr-1 text-amber-500 align-middle" />
+        );
+      case "success":
+        return (
+          <CheckCircle2 className="inline w-4 h-4 mr-1 text-emerald-600 align-middle" />
+        );
+      case "info":
+        return (
+          <Clock className="inline w-4 h-4 mr-1 text-slate-400 align-middle" />
+        );
+      default:
+        return null;
     }
   };
 
-
   // 상태 변화 리스트 (status_change만)
-  const statusChanges = alerts.filter(a => a.event === "status_change");
+  const statusChanges = alerts.filter((a) => a.event === "status_change");
 
   // === 반드시 컴포넌트 스코프 내에 존재해야 함 ===
   const getStatusIcon = (status: string) => {
@@ -460,25 +666,131 @@ export default function OpsPage() {
     }
   };
 
-
   return (
     <div className="min-h-screen bg-bg text-text p-6">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold text-text-strong">Evergreen Ops Dashboard</h1>
+            <h1 className="text-3xl font-bold text-text-strong">
+              Evergreen Ops Dashboard
+            </h1>
             {getGradeBadge()}
             {getMissionInfo()}
           </div>
           <div className="flex items-center gap-4">
             {getDataModeBadge()}
             <div className="text-sm text-muted">
-              Auto-refresh: 10s | Last update: {isClient ? (
+              Auto-refresh: 10s | Last update:{" "}
+              {isClient ? (
                 <span>{new Date().toLocaleTimeString("ko-KR")}</span>
               ) : (
                 <span>--:--:--</span>
               )}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border-subtle bg-panel p-4">
+          <h3 className="text-lg font-semibold text-text-strong">
+            Investor Account (Binance Testnet)
+          </h3>
+          <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-text">
+            <div>
+              Total Wallet: {String(account?.["totalWalletBalance"] ?? "-")}
+            </div>
+            <div>Available: {String(account?.["availableBalance"] ?? "-")}</div>
+            <div>
+              Unrealized PnL:{" "}
+              {String(account?.["totalUnrealizedProfit"] ?? "-")}
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4,1fr)",
+              gap: 12,
+              marginTop: 16,
+            }}
+          >
+            <div style={statBoxStyle}>
+              <h4>Total Realized PnL</h4>
+              <p>{totalRealized.toFixed(4)} USDT</p>
+            </div>
+
+            <div style={statBoxStyle}>
+              <h4>Last 24h PnL</h4>
+              <p>{last24h.toFixed(4)} USDT</p>
+            </div>
+
+            <div style={statBoxStyle}>
+              <h4>Total Trades</h4>
+              <p>{trades.length}</p>
+            </div>
+
+            <div style={statBoxStyle}>
+              <h4>Win Rate</h4>
+              <p>{winRate}%</p>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <div className="text-sm font-medium text-text-strong">
+              Recent Trades (BTCUSDT)
+            </div>
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs text-muted">
+                  <tr className="border-b border-border-subtle">
+                    <th className="py-2 text-left">Time</th>
+                    <th className="py-2 text-left">Side</th>
+                    <th className="py-2 text-right">Price</th>
+                    <th className="py-2 text-right">Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trades.length === 0 ? (
+                    <tr>
+                      <td className="py-3 text-muted" colSpan={4}>
+                        No trades
+                      </td>
+                    </tr>
+                  ) : (
+                    trades.map((t, idx) => (
+                      <tr
+                        key={idx}
+                        className="border-b border-border-subtle last:border-0"
+                      >
+                        <td className="py-2">
+                          {String(
+                            t["time"] ??
+                              t["timestamp"] ??
+                              t["transactTime"] ??
+                              "-",
+                          )}
+                        </td>
+                        <td className="py-2">
+                          {String(
+                            t["side"] ??
+                              (t["isBuyer"] === true
+                                ? "BUY"
+                                : t["isBuyer"] === false
+                                  ? "SELL"
+                                  : "-"),
+                          )}
+                        </td>
+                        <td className="py-2 text-right">
+                          {String(t["price"] ?? "-")}
+                        </td>
+                        <td className="py-2 text-right">
+                          {String(t["qty"] ?? t["quantity"] ?? "-")}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -488,7 +800,9 @@ export default function OpsPage() {
           {/* Service Status */}
           <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-xs font-medium text-muted">Service Status</CardTitle>
+              <CardTitle className="text-xs font-medium text-muted">
+                Service Status
+              </CardTitle>
               {statusValueLower && getStatusIcon(statusValueLower)}
             </CardHeader>
             <CardContent>
@@ -496,7 +810,8 @@ export default function OpsPage() {
                 {statusValueLower ? getStatusBadge(statusValueLower) : null}
               </div>
               <p className="mt-1 text-xs text-muted">
-                Heartbeat: {typeof statusRecord.heartbeat_sec_ago === "number"
+                Heartbeat:{" "}
+                {typeof statusRecord.heartbeat_sec_ago === "number"
                   ? `${statusRecord.heartbeat_sec_ago.toFixed(1)}s ago`
                   : "N/A"}
               </p>
@@ -506,7 +821,9 @@ export default function OpsPage() {
           {/* Cumulative Runtime */}
           <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-xs font-medium text-muted">Cumulative Runtime</CardTitle>
+              <CardTitle className="text-xs font-medium text-muted">
+                Cumulative Runtime
+              </CardTitle>
               <TrendingUp className="h-4 w-4 text-blue-500" />
             </CardHeader>
             <CardContent>
@@ -520,12 +837,16 @@ export default function OpsPage() {
                     ? asNum(statusRecord.cumulative_runtime_h, 0)
                     : cumulativeRuntimeSec / 3600;
                 const targetH = asNum(statusRecord.target_h, 168);
-                return <>
-                  <div className="mt-1 text-2xl font-semibold text-text-strong">{cumulativeRuntimeH.toFixed(2)}h</div>
-                  <p className="mt-1 text-xs text-muted">
-                    {Math.floor(cumulativeRuntimeSec)}s | Target: {targetH}h
-                  </p>
-                </>;
+                return (
+                  <>
+                    <div className="mt-1 text-2xl font-semibold text-text-strong">
+                      {cumulativeRuntimeH.toFixed(2)}h
+                    </div>
+                    <p className="mt-1 text-xs text-muted">
+                      {Math.floor(cumulativeRuntimeSec)}s | Target: {targetH}h
+                    </p>
+                  </>
+                );
               })()}
             </CardContent>
           </Card>
@@ -533,14 +854,18 @@ export default function OpsPage() {
           {/* Progress */}
           <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-xs font-medium text-muted">Progress</CardTitle>
+              <CardTitle className="text-xs font-medium text-muted">
+                Progress
+              </CardTitle>
               {(() => {
                 const progressPct =
                   typeof statusRecord.progress_percent === "number"
                     ? asNum(statusRecord.progress_percent, 0)
                     : asNum(statusRecord.progress_pct, 0);
                 return (
-                  <div className="text-sm font-semibold text-blue-600">{progressPct.toFixed(2)}%</div>
+                  <div className="text-sm font-semibold text-blue-600">
+                    {progressPct.toFixed(2)}%
+                  </div>
                 );
               })()}
             </CardHeader>
@@ -554,12 +879,14 @@ export default function OpsPage() {
                   typeof statusRecord.remaining_h === "number"
                     ? asNum(statusRecord.remaining_h, 0)
                     : asNum(statusRecord.remaining_hours, 0);
-                return <>
-                  <Progress value={progressPct} className="mt-2" />
-                  <p className="mt-1 text-xs text-muted">
-                    Remaining: {remainingH.toFixed(2)}h
-                  </p>
-                </>;
+                return (
+                  <>
+                    <Progress value={progressPct} className="mt-2" />
+                    <p className="mt-1 text-xs text-muted">
+                      Remaining: {remainingH.toFixed(2)}h
+                    </p>
+                  </>
+                );
               })()}
             </CardContent>
           </Card>
@@ -567,12 +894,16 @@ export default function OpsPage() {
           {/* Restart Count */}
           <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-xs font-medium text-muted">Restart Count</CardTitle>
+              <CardTitle className="text-xs font-medium text-muted">
+                Restart Count
+              </CardTitle>
               <AlertCircle className="h-4 w-4 text-orange-500" />
             </CardHeader>
             <CardContent>
               <div className="mt-1 text-2xl font-semibold text-text-strong">
-                {typeof statusRecord.restart_count === "number" ? statusRecord.restart_count : 0}
+                {typeof statusRecord.restart_count === "number"
+                  ? statusRecord.restart_count
+                  : 0}
               </div>
               <p className="mt-1 text-xs text-muted">
                 Ticks: {asNum(statusRecord.total_ticks, 0).toLocaleString()}
@@ -584,7 +915,9 @@ export default function OpsPage() {
         {/* Milestones */}
         <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
           <CardHeader>
-            <CardTitle className="text-xs font-medium text-muted">Milestones</CardTitle>
+            <CardTitle className="text-xs font-medium text-muted">
+              Milestones
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {(() => {
@@ -594,7 +927,9 @@ export default function OpsPage() {
               const m168 = !!milestones["168h"];
               return (
                 <div className="flex gap-4">
-                  <div className={`flex-1 p-4 rounded-lg ${m24 ? "bg-green-100" : "bg-gray-100"}`}>
+                  <div
+                    className={`flex-1 p-4 rounded-lg ${m24 ? "bg-green-100" : "bg-gray-100"}`}
+                  >
                     <div className="flex items-center gap-2">
                       {m24 ? (
                         <CheckCircle2 className="h-5 w-5 text-green-600" />
@@ -604,7 +939,9 @@ export default function OpsPage() {
                       <span className="font-semibold">24 Hours</span>
                     </div>
                   </div>
-                  <div className={`flex-1 p-4 rounded-lg ${m72 ? "bg-green-100" : "bg-gray-100"}`}>
+                  <div
+                    className={`flex-1 p-4 rounded-lg ${m72 ? "bg-green-100" : "bg-gray-100"}`}
+                  >
                     <div className="flex items-center gap-2">
                       {m72 ? (
                         <CheckCircle2 className="h-5 w-5 text-green-600" />
@@ -614,7 +951,9 @@ export default function OpsPage() {
                       <span className="font-semibold">72 Hours</span>
                     </div>
                   </div>
-                  <div className={`flex-1 p-4 rounded-lg ${m168 ? "bg-green-100" : "bg-gray-100"}`}>
+                  <div
+                    className={`flex-1 p-4 rounded-lg ${m168 ? "bg-green-100" : "bg-gray-100"}`}
+                  >
                     <div className="flex items-center gap-2">
                       {m168 ? (
                         <CheckCircle2 className="h-5 w-5 text-green-600" />
@@ -633,14 +972,22 @@ export default function OpsPage() {
         {/* Events & Logs Tabs */}
         <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
           <CardHeader>
-            <CardTitle className="text-xs font-medium text-muted">Events & Logs</CardTitle>
+            <CardTitle className="text-xs font-medium text-muted">
+              Events & Logs
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="events" className="w-full">
               <TabsList>
-                <TabsTrigger value="events">Recent Events ({events.length})</TabsTrigger>
-                <TabsTrigger value="stdout">Stdout ({stdoutLines.length})</TabsTrigger>
-                <TabsTrigger value="stderr">Stderr ({stderrLines.length})</TabsTrigger>
+                <TabsTrigger value="events">
+                  Recent Events ({events.length})
+                </TabsTrigger>
+                <TabsTrigger value="stdout">
+                  Stdout ({stdoutLines.length})
+                </TabsTrigger>
+                <TabsTrigger value="stderr">
+                  Stderr ({stderrLines.length})
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="events" className="mt-4">
@@ -660,22 +1007,42 @@ export default function OpsPage() {
                         {events.map((ev, idx) => {
                           const evt = getRecord(ev);
                           return (
-                          <tr key={idx} className="text-xs text-text hover:bg-panel-2">
-                            <td className="px-4 py-2">
-                              {new Date(asNum(evt.ts) * 1000).toLocaleString()}
-                            </td>
-                            <td className="px-4 py-2 font-mono text-xs">{asString(evt.event) || "-"}</td>
-                            <td className="px-4 py-2">
-                              <span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold ${getSeverityColor(asString(evt.severity, "info"))}`}>{asString(evt.severity) || "info"}</span>
-                            </td>
-                            <td className="px-4 py-2">
-                              {(() => {
-                                const val = evt.cumulative_runtime_sec;
-                                return typeof val === 'number' ? (val / 3600).toFixed(2) : "-";
-                              })()}
-                            </td>
-                            <td className="px-4 py-2">{asNum(evt.restart_count) || "-"}</td>
-                          </tr>
+                            <tr
+                              key={idx}
+                              className="text-xs text-text hover:bg-panel-2"
+                            >
+                              <td className="px-4 py-2">
+                                {isClient
+                                  ? new Date(
+                                      asNum(evt.ts) * 1000,
+                                    ).toLocaleString()
+                                  : "--:--:--"}
+                              </td>
+                              <td className="px-4 py-2 font-mono text-xs">
+                                {asString(evt.event) || "-"}
+                              </td>
+                              <td className="px-4 py-2">
+                                <span
+                                  className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold ${getSeverityColor(asString(evt.severity, "info"))}`}
+                                >
+                                  {getSeverityIcon(
+                                    asString(evt.severity, "info"),
+                                  )}
+                                  {asString(evt.severity) || "info"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2">
+                                {(() => {
+                                  const val = evt.cumulative_runtime_sec;
+                                  return typeof val === "number"
+                                    ? (val / 3600).toFixed(2)
+                                    : "-";
+                                })()}
+                              </td>
+                              <td className="px-4 py-2">
+                                {asNum(evt.restart_count) || "-"}
+                              </td>
+                            </tr>
                           );
                         })}
                       </tbody>
@@ -709,16 +1076,36 @@ export default function OpsPage() {
         {/* History(24h) 라인차트 */}
         <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
           <CardHeader>
-            <CardTitle className="text-xs font-medium text-muted">History (24h)</CardTitle>
+            <CardTitle className="text-xs font-medium text-muted">
+              History (24h)
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div style={{ width: "100%", height: 260, minHeight: 260 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={getDownsampledHistory()} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                  <XAxis dataKey="ts" tickFormatter={ts => new Date(ts * 1000).getHours() + ":" + String(new Date(ts * 1000).getMinutes()).padStart(2, "0")}/>
-                  <YAxis dataKey="runtime_h" tickFormatter={v => v.toFixed(1)} width={60} />
+                <LineChart
+                  data={getDownsampledHistory()}
+                  margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                >
+                  <XAxis
+                    dataKey="ts"
+                    tickFormatter={(ts) =>
+                      new Date(ts * 1000).getHours() +
+                      ":" +
+                      String(new Date(ts * 1000).getMinutes()).padStart(2, "0")
+                    }
+                  />
+                  <YAxis
+                    dataKey="runtime_h"
+                    tickFormatter={(v) => v.toFixed(1)}
+                    width={60}
+                  />
                   <Tooltip
-                    labelFormatter={(ts) => new Date((typeof ts === "number" ? ts : 0) * 1000).toLocaleString()}
+                    labelFormatter={(ts) =>
+                      new Date(
+                        (typeof ts === "number" ? ts : 0) * 1000,
+                      ).toLocaleString()
+                    }
                     formatter={(value: unknown, name: unknown) => {
                       const label = typeof name === "string" ? name : "";
                       if (label === "runtime_h" && typeof value === "number") {
@@ -727,7 +1114,13 @@ export default function OpsPage() {
                       return value as string | number;
                     }}
                   />
-                  <Line type="monotone" dataKey="runtime_h" stroke="#2563eb" dot={false} name="Runtime (h)" />
+                  <Line
+                    type="monotone"
+                    dataKey="runtime_h"
+                    stroke="#2563eb"
+                    dot={false}
+                    name="Runtime (h)"
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -735,12 +1128,21 @@ export default function OpsPage() {
             <div className="mt-4">
               <div className="font-semibold mb-2">Status Changes (24h)</div>
               <ul className="space-y-1 text-sm">
-                {statusChanges.length === 0 && <li className="text-gray-400">No status changes in 24h</li>}
+                {statusChanges.length === 0 && (
+                  <li className="text-gray-400">No status changes in 24h</li>
+                )}
                 {statusChanges.map((ev, idx) => (
                   <li key={idx} className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 rounded border ${getSeverityColor(ev.severity ?? "info")}`}>{getSeverityIcon(ev.severity ?? "info")}{ev.severity ?? "info"}</span>
+                    <span
+                      className={`px-2 py-0.5 rounded border ${getSeverityColor(ev.severity ?? "info")}`}
+                    >
+                      {getSeverityIcon(ev.severity ?? "info")}
+                      {ev.severity ?? "info"}
+                    </span>
                     <span>{ev.msg ?? "-"}</span>
-                    <span className="text-gray-400">{new Date((ev.ts ?? 0) * 1000).toLocaleString()}</span>
+                    <span className="text-gray-400">
+                      {new Date((ev.ts ?? 0) * 1000).toLocaleString()}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -751,7 +1153,9 @@ export default function OpsPage() {
         {/* Alerts 패널 */}
         <Card className="rounded-xl border border-slate-200 bg-white shadow-sm">
           <CardHeader>
-            <CardTitle className="text-xs font-medium text-slate-600">Alerts (최근 20개)</CardTitle>
+            <CardTitle className="text-xs font-medium text-slate-600">
+              Alerts (최근 20개)
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="max-h-72 overflow-y-auto">
@@ -766,10 +1170,24 @@ export default function OpsPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-200 bg-white">
                   {alerts.slice(0, 20).map((a, idx) => (
-                    <tr key={idx} className="text-xs text-slate-700 hover:bg-slate-50">
-                      <td className="px-2 py-1">{new Date((a.ts ?? 0) * 1000).toLocaleString()}</td>
-                      <td className="px-2 py-1 font-mono text-xs">{a.event ?? "-"}</td>
-                      <td className="px-2 py-1"><span className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold border ${getSeverityColor(a.severity ?? "info")}`}>{getSeverityIcon(a.severity ?? "info")}{a.severity ?? "info"}</span></td>
+                    <tr
+                      key={idx}
+                      className="text-xs text-slate-700 hover:bg-slate-50"
+                    >
+                      <td className="px-2 py-1">
+                        {new Date((a.ts ?? 0) * 1000).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-1 font-mono text-xs">
+                        {a.event ?? "-"}
+                      </td>
+                      <td className="px-2 py-1">
+                        <span
+                          className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold border ${getSeverityColor(a.severity ?? "info")}`}
+                        >
+                          {getSeverityIcon(a.severity ?? "info")}
+                          {a.severity ?? "info"}
+                        </span>
+                      </td>
                       <td className="px-2 py-1 break-all">{a.msg ?? "-"}</td>
                     </tr>
                   ))}
