@@ -16,6 +16,7 @@ evidence/
 
 # local scratch
 test.json
+tools/honey_reports/
 
 # testing/cache
 coverage/
