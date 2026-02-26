@@ -3,16 +3,18 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Set
 
 import requests
 import websockets
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-
 from next_trade.execution.binance_testnet_adapter import BinanceTestnetAdapter
+
+from .routes_v1_dev import router as v1_dev_router
+from .routes_v1_ops import router as v1_ops_router
 
 app = FastAPI(title="NEXT-TRADE Investor API", version="1.0")
 
@@ -27,6 +29,11 @@ app.add_middleware(
 
 connections: Set[WebSocket] = set()
 _user_stream_task: asyncio.Task | None = None
+LEGACY_SUNSET = "2026-06-30"
+
+app.state.connections = connections
+app.include_router(v1_ops_router)
+app.include_router(v1_dev_router)
 
 
 def _get_adapter() -> BinanceTestnetAdapter:
@@ -43,6 +50,65 @@ def _get_adapter() -> BinanceTestnetAdapter:
         },
         base_url=os.getenv("BINANCE_TESTNET_BASE_URL", "https://demo-fapi.binance.com"),
     )
+
+
+def _project_root() -> Path:
+    return Path(__file__).parent.parent.parent.parent
+
+
+def _to_epoch_ms(value) -> int:
+    if isinstance(value, (int, float)):
+        value_int = int(value)
+        return value_int if value_int > 10_000_000_000 else value_int * 1000
+    if isinstance(value, str):
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            return int(datetime.now(timezone.utc).timestamp() * 1000)
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def _event_to_risk_item(event: dict, index: int) -> dict:
+    level = str(event.get("level") or "INFO")
+    action = str(event.get("action") or event.get("event_type") or "UNKNOWN")
+    ts_ms = _to_epoch_ms(event.get("ts"))
+    trace_id = str(event.get("trace_id") or f"risk-{index}")
+    reason = str(event.get("reason") or action)
+    return {
+        "timestamp": ts_ms,
+        "event_id": f"{trace_id}-{index}",
+        "event_type": action,
+        "level": level,
+        "reason": reason,
+        "risk_type": action,
+        "metadata": {
+            "trace_id": trace_id,
+        },
+    }
+
+
+def _to_ws_envelope(
+    event_type: str,
+    trace_id: str,
+    data: dict,
+    severity: str = "INFO",
+    ts_ms: int | None = None,
+) -> dict:
+    event_ts = (
+        ts_ms
+        if ts_ms is not None
+        else int(datetime.now(timezone.utc).timestamp() * 1000)
+    )
+    return {
+        "type": event_type,
+        "event_type": event_type,
+        "ts": event_ts,
+        "trace_id": trace_id,
+        "severity": severity,
+        "data": data,
+        "contract_version": "v1",
+    }
 
 
 @app.get("/api/investor/account")
@@ -63,24 +129,44 @@ def get_runtime_health():
     S7 Ops Dashboard: Runtime Health Status
     Returns watchdog + engine health metrics
     """
-    project_root = Path(__file__).parent.parent.parent.parent
+    project_root = _project_root()
     pid_file = project_root / "logs" / "runtime" / "engine.pid"
     checkpoint_file = project_root / "logs" / "runtime" / "checkpoint_log.txt"
-    events_file = project_root / "evidence" / "phase-s5-watchdog" / "watchdog_events.jsonl"
+    events_file = (
+        project_root / "evidence" / "phase-s5-watchdog" / "watchdog_events.jsonl"
+    )
 
     # Read engine PID
     engine_pid = None
     engine_alive = False
+    engine_cmdline_hint = None
     if pid_file.exists():
         try:
             engine_pid = int(pid_file.read_text().strip())
-            # Check if process is alive (simple check)
             import psutil
-            try:
-                proc = psutil.Process(engine_pid)
-                engine_alive = proc.is_running()
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                engine_alive = False
+
+            def pid_alive(pid: int) -> bool:
+                if not pid or pid <= 0:
+                    return False
+                try:
+                    return psutil.pid_exists(pid)
+                except Exception:
+                    return False
+
+            def cmdline_hint(pid: int) -> str | None:
+                try:
+                    proc = psutil.Process(pid)
+                    cmd = " ".join(proc.cmdline() or [])
+                    return cmd[:300] if cmd else None
+                except psutil.AccessDenied:
+                    return "ACCESS_DENIED"
+                except psutil.NoSuchProcess:
+                    return None
+                except Exception:
+                    return None
+
+            engine_alive = pid_alive(engine_pid)
+            engine_cmdline_hint = cmdline_hint(engine_pid)
         except Exception:
             pass
 
@@ -134,11 +220,12 @@ def get_runtime_health():
     task_state = "UNKNOWN"
     try:
         import subprocess
+
         result = subprocess.run(
             ["schtasks", "/Query", "/TN", "NEXTTRADE_WATCHDOG", "/FO", "LIST"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         if result.returncode == 0:
             for line in result.stdout.split("\n"):
@@ -157,6 +244,7 @@ def get_runtime_health():
     return {
         "engine_pid": engine_pid,
         "engine_alive": engine_alive,
+        "engine_cmdline_hint": engine_cmdline_hint,
         "checkpoint_age_sec": checkpoint_age_sec,
         "checkpoint_status": checkpoint_status,
         "health_status": health_status,
@@ -164,7 +252,7 @@ def get_runtime_health():
         "restart_count": restart_count,
         "flap_detected": flap_detected,
         "task_state": task_state,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
 
 
@@ -174,8 +262,11 @@ def get_runtime_events(limit: int = Query(default=50, ge=1, le=500)):
     S7 Ops Dashboard: Recent Runtime Events
     Returns watchdog event timeline
     """
-    project_root = Path(__file__).parent.parent.parent.parent
-    events_file = project_root / "evidence" / "phase-s5-watchdog" / "watchdog_events.jsonl"
+    project_root = _project_root()
+    events_file = (
+        project_root / "evidence" / "phase-s5-watchdog" / "watchdog_events.jsonl"
+    )
+    live_obs_file = project_root / "metrics" / "live_obs.jsonl"
 
     events = []
     if events_file.exists():
@@ -188,7 +279,154 @@ def get_runtime_events(limit: int = Query(default=50, ge=1, le=500)):
         except Exception:
             pass
 
+    if live_obs_file.exists():
+        try:
+            lines = live_obs_file.read_text(encoding="utf-8").strip().split("\n")
+            for line in reversed(lines[-limit:]):
+                if not line.strip():
+                    continue
+                raw = json.loads(line)
+                events.append(
+                    {
+                        "ts": (
+                            raw.get("ts")
+                            if raw.get("ts")
+                            else datetime.now(timezone.utc).isoformat()
+                        ),
+                        "level": raw.get("risk_level", "INFO"),
+                        "action": raw.get("type", "LIVE_OBS"),
+                        "reason": raw.get("reason"),
+                        "trace_id": raw.get("trace_id"),
+                    }
+                )
+        except Exception:
+            pass
+
+    events = sorted(
+        events,
+        key=lambda event: _to_epoch_ms(event.get("ts")),
+        reverse=True,
+    )[:limit]
+
     return {"events": events, "count": len(events)}
+
+
+@app.get("/api/state/engine")
+def get_state_engine():
+    health = get_runtime_health()
+    is_critical = str(health.get("health_status") or "").upper() == "CRITICAL"
+    checkpoint_status = str(health.get("checkpoint_status") or "UNKNOWN")
+    task_state = str(health.get("task_state") or "UNKNOWN")
+    engine_alive = bool(health.get("engine_alive"))
+    restart_count = int(health.get("restart_count") or 0)
+    checkpoint_age_sec = float(health.get("checkpoint_age_sec") or 0)
+
+    pending_total = 0
+    if not engine_alive:
+        pending_total += 1
+    if bool(health.get("flap_detected")):
+        pending_total += 1
+
+    return {
+        "kill_switch_on": is_critical,
+        "risk_type": checkpoint_status,
+        "reason": task_state,
+        "uptime_sec": checkpoint_age_sec,
+        "published": restart_count,
+        "consumed": 1 if engine_alive else 0,
+        "pending_total": pending_total,
+        "is_stale": checkpoint_status in ["STALE", "EXPIRED", "UNKNOWN"],
+        "engine_pid": health.get("engine_pid"),
+        "health_status": health.get("health_status"),
+        "checkpoint_status": checkpoint_status,
+        "kill_switch": is_critical,
+        "pending": pending_total,
+        "deprecated": True,
+        "sunset": LEGACY_SUNSET,
+        "replacement": "/api/v1/ops/state",
+    }
+
+
+@app.get("/api/state/positions")
+def get_state_positions():
+    return {
+        "positions": [],
+        "timestamp": int(datetime.now(timezone.utc).timestamp()),
+        "deprecated": True,
+        "sunset": LEGACY_SUNSET,
+        "replacement": "/api/v1/ops/positions",
+    }
+
+
+@app.get("/api/history/risks")
+def get_history_risks(limit: int = Query(default=20, ge=1, le=500)):
+    runtime = get_runtime_events(limit=limit)
+    runtime_events = runtime.get("events") or []
+    risk_items = [
+        _event_to_risk_item(event, index) for index, event in enumerate(runtime_events)
+    ]
+    return {
+        "events": risk_items,
+        "items": risk_items,
+        "count": len(risk_items),
+        "deprecated": True,
+        "sunset": LEGACY_SUNSET,
+        "replacement": "/api/v1/ops/risks",
+    }
+
+
+@app.post("/api/dev/emit-event")
+async def emit_dev_event(payload: dict):
+    project_root = _project_root()
+    events_file = (
+        project_root / "evidence" / "phase-s5-watchdog" / "watchdog_events.jsonl"
+    )
+
+    event_type = str(payload.get("event_type") or "DEV_EVENT")
+    trace_id = str(payload.get("trace_id") or f"dev-{payload.get('index', '0')}")
+    ts_ms = _to_epoch_ms(payload.get("ts"))
+    ts_iso = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
+
+    severity = str(payload.get("severity") or "INFO").upper()
+    ws_event = _to_ws_envelope(
+        event_type=event_type,
+        trace_id=trace_id,
+        severity=severity,
+        ts_ms=ts_ms,
+        data={
+            "index": payload.get("index"),
+            "total": payload.get("total"),
+            "source": "dev_emit",
+            "metadata": payload.get("metadata", {}),
+        },
+    )
+
+    runtime_event = {
+        "ts": ts_iso,
+        "level": severity,
+        "action": event_type,
+        "trace_id": trace_id,
+        "reason": "DEV_EMIT_EVENT",
+    }
+
+    try:
+        events_file.parent.mkdir(parents=True, exist_ok=True)
+        with events_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(runtime_event, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+    await _broadcast(ws_event)
+
+    return {
+        "ok": True,
+        "emitted": event_type,
+        "trace_id": trace_id,
+        "ts": ts_ms,
+        "deprecated": True,
+        "sunset": LEGACY_SUNSET,
+        "replacement": "/api/v1/dev/emit-event",
+    }
 
 
 @app.websocket("/ws/events")
@@ -264,15 +502,30 @@ async def binance_user_stream() -> None:
         keepalive_task: asyncio.Task | None = None
         try:
             listen_key = await _get_listen_key(base, headers)
-            keepalive_task = asyncio.create_task(_keepalive_listen_key(base, headers, listen_key))
+            keepalive_task = asyncio.create_task(
+                _keepalive_listen_key(base, headers, listen_key)
+            )
             ws_url = f"wss://fstream.binancefuture.com/ws/{listen_key}"
-            async with websockets.connect(ws_url, ping_interval=20, ping_timeout=20) as ws:
+            async with websockets.connect(
+                ws_url, ping_interval=20, ping_timeout=20
+            ) as ws:
                 backoff = 1
                 while True:
                     msg = await ws.recv()
                     data = json.loads(msg)
                     if data.get("e") == "ORDER_TRADE_UPDATE":
-                        await _broadcast(data)
+                        trace_id = str(
+                            data.get("o", {}).get("i") or data.get("E") or "binance"
+                        )
+                        await _broadcast(
+                            _to_ws_envelope(
+                                event_type="ORDER_UPDATE",
+                                trace_id=trace_id,
+                                data=data,
+                                severity="INFO",
+                                ts_ms=_to_epoch_ms(data.get("E")),
+                            )
+                        )
         except Exception:
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 60)

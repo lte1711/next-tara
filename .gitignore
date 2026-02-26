@@ -43,3 +43,10 @@ metrics/*.jsonl
 *.zip
 coverage/
 nul
+
+## Local scratch/tests (do not commit)
+test.json
+TEST_*.py
+TEST_*.ps1
+test_checkpoint.py
+monitor_engine*.ps1
