@@ -27,9 +27,12 @@ import {
   V1OrderItem,
   V1PnlResponse,
 } from "@/lib/api";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 export default function Dashboard() {
+  const pathname = usePathname();
+  const showInlinePhaseBCards = pathname !== "/command-center";
   const [engine, setEngine] = useState<EngineState | null>(null);
   const [positions, setPositions] = useState<Position[] | null>(null);
   const [risks, setRisks] = useState<RiskEvent[]>([]);
@@ -436,30 +439,32 @@ export default function Dashboard() {
         <PositionsCard positions={positions} loading={loadingPositions} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        <ProgressCard
-          loading={loadingProgress}
-          error={progressError}
-          uptimeSec={contractState?.freshness.checkpoint_age_sec ?? 0}
-          sessionState={contractHealth?.status ?? "UNKNOWN"}
-          processedEvents={risks.length}
-          restartCount={contractState?.counters.restart_count ?? 0}
-          onRetry={loadData}
-        />
-        <TradesCard
-          loading={loadingTrades}
-          error={tradesError}
-          orders={orders}
-          fills={fills}
-          onRetry={loadData}
-        />
-        <PnlCard
-          loading={loadingPnl}
-          error={pnlError}
-          pnl={pnl}
-          onRetry={loadData}
-        />
-      </div>
+      {showInlinePhaseBCards && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+          <ProgressCard
+            loading={loadingProgress}
+            error={progressError}
+            uptimeSec={contractState?.freshness.checkpoint_age_sec ?? 0}
+            sessionState={contractHealth?.status ?? "UNKNOWN"}
+            processedEvents={risks.length}
+            restartCount={contractState?.counters.restart_count ?? 0}
+            onRetry={loadData}
+          />
+          <TradesCard
+            loading={loadingTrades}
+            error={tradesError}
+            orders={orders}
+            fills={fills}
+            onRetry={loadData}
+          />
+          <PnlCard
+            loading={loadingPnl}
+            error={pnlError}
+            pnl={pnl}
+            onRetry={loadData}
+          />
+        </div>
+      )}
 
       {/* D. Kill-Switch Control Panel */}
       <div className="mb-6">
