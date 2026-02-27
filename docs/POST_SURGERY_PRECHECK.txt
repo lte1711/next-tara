@@ -1,0 +1,46 @@
+POST_SURGERY_PRECHECK
+Directive: NEXT-TRADE-LIVE-SURGERY-EXEC-001
+Branch: fix/live-surgery-range-off
+Date: 2026-02-27
+Author: Honey
+
+== PATCH SUMMARY ==
+File: tools/ops/profitmax_v1_runner.py
+
+[1] RANGE REGIME BLOCK (line ~619)
+    - mean_reversion + trend_momentum 진입 차단 when regime == "range"
+    - 차단 시 STRATEGY_BLOCKED 이벤트 로깅 (strategy_id, regime, reason, weighted_score)
+
+[2] MIN EXPECTED PROFIT GATE (line ~349)
+    - _enter_position() 내부에서 진입 전 fee gate 검사
+    - estimated_fee = entry_price * qty * 0.0004 * 2  (round-trip taker fee)
+    - expected_profit = tp_pct * qty * entry_price
+    - 차단 조건: expected_profit / estimated_fee < 2.5
+    - 차단 시 STRATEGY_BLOCKED 이벤트 로깅 (reason, expected_profit, estimated_fee, fee_ratio)
+
+[3] Z-SCORE THRESHOLD TIGHTEN (line ~219)
+    - mean_reversion 진입 임계값 강화: abs(z) >= 0.8 → abs(z) >= 2.5
+
+== PRE-SURGERY SNAPSHOT ==
+Location: evidence/phase-live-6h/STAMP_pre_surgery/
+Files:
+  - profitmax_v1_events.jsonl  (snapshot at 2026-02-27T17:xx UTC)
+  - profitmax_v1_summary.json
+  - trade_updates.jsonl
+
+== ANALYSIS BASIS ==
+Report: evidence/phase-live-6h/REPORT_LIVE_6H_20260227.md
+Sessions: S1 (2026-02-26 20:00~02:00 UTC) + S2 (2026-02-27 02:00~08:00 UTC)
+Worst strategy: mean_reversion/range → Net PnL -6.5243 USDT (40 trades, 42.5% WR)
+Verdict: Bad Edge (GrossPnL -2.2136 < 0, fee-independent loss)
+
+== VERIFICATION CHECKLIST ==
+[ ] range regime → STRATEGY_BLOCKED 이벤트 발생 확인
+[ ] trend regime → mean_reversion 진입 허용 확인
+[ ] mean_reversion z-score 임계값 2.5 이상에서만 신호 생성 확인
+[ ] min edge gate 조건부 차단 이벤트 로그 확인
+[ ] Python syntax OK: ast.parse 통과 ✅ (검증 완료)
+
+== GO/NO-GO CONDITION ==
+Session 4 시작 전 Dennis 승인 필요.
+Gemini GO/NO-GO 문서: docs/ANALYSIS_LIVE_SESSION4_GO_NO_GO.md (미작성)
