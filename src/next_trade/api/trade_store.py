@@ -194,6 +194,60 @@ def list_fills(limit: int) -> list[dict]:
     return fill_items[:limit]
 
 
+def list_fills_query(
+    limit: int,
+    cursor: int | None = None,
+    from_ts: int | None = None,
+    to_ts: int | None = None,
+) -> tuple[list[dict], int | None, bool]:
+    records = _load_records(max_lines=50000)
+    fill_items: list[dict] = []
+
+    for record in reversed(records):
+        fill = record.get("fill")
+        order = record.get("order")
+        if not isinstance(fill, dict) or not isinstance(order, dict):
+            continue
+        fill_qty = _as_float(fill.get("qty"))
+        if fill_qty <= 0:
+            continue
+        ts = _as_int(record.get("ts"))
+        if ts <= 0:
+            continue
+        trade_id = str(fill.get("trade_id") or f"{fill.get('order_id')}-{ts}")
+        fill_items.append(
+            {
+                "trade_id": trade_id,
+                "order_id": str(fill.get("order_id") or order.get("order_id") or ""),
+                "symbol": str(fill.get("symbol") or order.get("symbol") or ""),
+                "side": str(fill.get("side") or order.get("side") or ""),
+                "price": _as_float(fill.get("price")),
+                "qty": fill_qty,
+                "fee": _as_float(fill.get("fee")),
+                "ts": ts,
+            }
+        )
+
+    def _ok(item: dict) -> bool:
+        ts = _as_int(item.get("ts"))
+        if cursor is not None and not (ts < int(cursor)):
+            return False
+        if from_ts is not None and not (ts >= int(from_ts)):
+            return False
+        if to_ts is not None and not (ts <= int(to_ts)):
+            return False
+        return True
+
+    filtered = [it for it in fill_items if _ok(it)]
+    page = filtered[:limit]
+    if not page:
+        return [], None, False
+
+    next_cursor = min(_as_int(it.get("ts")) for it in page)
+    has_more = len(filtered) > len(page)
+    return page, next_cursor, has_more
+
+
 def get_pnl_snapshot(point_count: int = 60) -> dict:
     records = _load_records()
     if not records:

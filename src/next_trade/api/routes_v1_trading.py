@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from next_trade.config.creds import get_binance_testnet_creds
-from .trade_store import list_fills, list_orders
+from .trade_store import list_fills_query, list_orders
 
 router = APIRouter(prefix="/api/v1/trading", tags=["trading-v1"])
 
@@ -125,11 +125,23 @@ def get_trading_orders(limit: int = Query(default=20, ge=1, le=200)):
 
 
 @router.get("/fills")
-def get_trading_fills(limit: int = Query(default=20, ge=1, le=200)):
-    items = list_fills(limit)
+def get_trading_fills(
+    limit: int = Query(default=20, ge=1, le=200),
+    cursor: int | None = Query(default=None, description="Return items with ts < cursor (ms)"),
+    from_ts: int | None = Query(default=None, description="Return items with ts >= from_ts (ms)"),
+    to_ts: int | None = Query(default=None, description="Return items with ts <= to_ts (ms)"),
+):
+    items, next_cursor, has_more = list_fills_query(
+        limit=limit,
+        cursor=cursor,
+        from_ts=from_ts,
+        to_ts=to_ts,
+    )
     return {
-        "items": items[:limit],
-        "count": len(items[:limit]),
+        "items": items,
+        "count": len(items),
+        "next_cursor": next_cursor,
+        "has_more": has_more,
         "server_ts": datetime.now(timezone.utc).isoformat(),
         "contract_version": CONTRACT_VERSION,
     }
