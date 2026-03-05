@@ -17,7 +17,6 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   Line,
   LineChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -667,7 +666,7 @@ export default function OpsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-bg text-text p-6">
+    <div className="min-h-screen overflow-y-auto bg-bg text-text p-6 pb-24">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -1072,57 +1071,57 @@ export default function OpsPage() {
       </div>
 
       {/* PHASE 24-5: History & Alerts */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         {/* History(24h) 라인차트 */}
-        <Card className="rounded-lg border border-border-subtle bg-panel shadow-sm">
+        <Card className="min-h-0 rounded-lg border border-border-subtle bg-panel shadow-sm">
           <CardHeader>
             <CardTitle className="text-xs font-medium text-muted">
               History (24h)
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div style={{ width: "100%", height: 260, minHeight: 260 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={getDownsampledHistory()}
-                  margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-                >
-                  <XAxis
-                    dataKey="ts"
-                    tickFormatter={(ts) =>
-                      new Date(ts * 1000).getHours() +
-                      ":" +
-                      String(new Date(ts * 1000).getMinutes()).padStart(2, "0")
+          <CardContent className="min-h-0">
+            <div className="w-full overflow-x-auto">
+              <LineChart
+                width={720}
+                height={260}
+                data={getDownsampledHistory()}
+                margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+              >
+                <XAxis
+                  dataKey="ts"
+                  tickFormatter={(ts) =>
+                    new Date(ts * 1000).getHours() +
+                    ":" +
+                    String(new Date(ts * 1000).getMinutes()).padStart(2, "0")
+                  }
+                />
+                <YAxis
+                  dataKey="runtime_h"
+                  tickFormatter={(v) => v.toFixed(1)}
+                  width={60}
+                />
+                <Tooltip
+                  labelFormatter={(ts) =>
+                    new Date(
+                      (typeof ts === "number" ? ts : 0) * 1000,
+                    ).toLocaleString()
+                  }
+                  formatter={(value: unknown, name: unknown) => {
+                    const label = typeof name === "string" ? name : "";
+                    if (label === "runtime_h" && typeof value === "number") {
+                      return `${value.toFixed(2)}h`;
                     }
-                  />
-                  <YAxis
-                    dataKey="runtime_h"
-                    tickFormatter={(v) => v.toFixed(1)}
-                    width={60}
-                  />
-                  <Tooltip
-                    labelFormatter={(ts) =>
-                      new Date(
-                        (typeof ts === "number" ? ts : 0) * 1000,
-                      ).toLocaleString()
-                    }
-                    formatter={(value: unknown, name: unknown) => {
-                      const label = typeof name === "string" ? name : "";
-                      if (label === "runtime_h" && typeof value === "number") {
-                        return `${value.toFixed(2)}h`;
-                      }
-                      return value as string | number;
-                    }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="runtime_h"
-                    stroke="#2563eb"
-                    dot={false}
-                    name="Runtime (h)"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+                    return value as string | number;
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="runtime_h"
+                  stroke="#2563eb"
+                  dot={false}
+                  name="Runtime (h)"
+                />
+              </LineChart>
             </div>
             {/* 상태 변화 리스트 */}
             <div className="mt-4">

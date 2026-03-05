@@ -9,6 +9,18 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        nt: {
+          bg: "var(--nt-bg)",
+          surface: "var(--nt-surface)",
+          "surface-2": "var(--nt-surface-2)",
+          border: "var(--nt-border)",
+          fg: "var(--nt-fg)",
+          "fg-2": "var(--nt-fg-2)",
+          up: "var(--nt-up)",
+          down: "var(--nt-down)",
+          warn: "var(--nt-warn)",
+          info: "var(--nt-info)",
+        },
         bg: "var(--bg)",
         panel: "var(--panel)",
         "panel-2": "var(--panel-2)",

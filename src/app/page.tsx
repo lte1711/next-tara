@@ -398,7 +398,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-bg p-8">
+    <div className="min-h-screen overflow-y-auto bg-bg p-8 pb-24">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-4xl font-bold mb-2 text-text-strong">
@@ -448,6 +448,11 @@ export default function Dashboard() {
             sessionState={contractHealth?.status ?? "UNKNOWN"}
             processedEvents={risks.length}
             restartCount={contractState?.counters.restart_count ?? 0}
+            wsConnected={wsConnected}
+            wsFrameCount={0}
+            wsHeartbeatAgeSec={null}
+            dataChangeAgeSec={null}
+            lastChangedFields={null}
             onRetry={loadData}
           />
           <TradesCard
@@ -461,6 +466,7 @@ export default function Dashboard() {
             loading={loadingPnl}
             error={pnlError}
             pnl={pnl}
+            pmxRealized={null}
             onRetry={loadData}
           />
         </div>

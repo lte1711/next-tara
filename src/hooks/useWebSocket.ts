@@ -18,6 +18,7 @@ export type WSEventType =
   | 'ROUTE_SPLIT'
   | 'ROUTE_REJECTED_SOFT'
   | 'ROUTE_REJECTED_HARD'
+  | 'OPS_HA_STATUS'
 
 export interface WSEvent {
   event_type: WSEventType
@@ -74,6 +75,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
       'ROUTE_SPLIT',
       'ROUTE_REJECTED_SOFT',
       'ROUTE_REJECTED_HARD',
+      'OPS_HA_STATUS',
     ].includes(value)
 
   // Mount/unmount tracking - separate from connection logic

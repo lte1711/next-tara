@@ -2,9 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* NEXT-TRADE Institutional theme tokens (v1.7) */
+  --nt-bg: #0b0e11;
+  --nt-surface: #161a20;
+  --nt-surface-2: #1b212b;
+  --nt-border: #2a3342;
+  --nt-fg: #e7edf5;
+  --nt-fg-2: #8b949e;
+  --nt-up: #0ecb81;
+  --nt-down: #f6465d;
+  --nt-warn: #f0b90b;
+  --nt-info: #4ea1ff;
+
+  /* Backward-compatible aliases */
+  --bg: var(--nt-bg);
+  --panel: var(--nt-surface);
+  --panel-2: var(--nt-surface-2);
+  --border: var(--nt-border);
+  --border-subtle: var(--nt-border);
+  --text: var(--nt-fg);
+  --text-strong: #f5f8ff;
+  --muted: var(--nt-fg-2);
+  --muted-dark: #6f7d93;
+  --ok: var(--nt-up);
+  --warn: var(--nt-warn);
+  --danger: var(--nt-down);
+  --info: var(--nt-info);
+}
+
+html,
 body {
-  background: var(--bg);
-  color: var(--text);
+  height: 100%;
+}
+
+body {
+  background: var(--nt-bg, var(--bg));
+  color: var(--nt-fg, var(--text));
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;

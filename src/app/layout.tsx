@@ -14,7 +14,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="bg-bg text-text">
+      <body className="min-h-screen overflow-y-auto bg-nt-bg text-nt-fg tabular-nums">
         <style dangerouslySetInnerHTML={{ __html: buildTokenCss() }} />
         {children}
       </body>
