@@ -30,6 +30,7 @@ from typing import Any
 
 
 KST = timezone(timedelta(hours=9))
+MAX_EDGES_PER_WINDOW = 10000
 
 
 @dataclass
@@ -170,6 +171,13 @@ def _histogram(values: list[float], bins: int = 20) -> list[dict[str, float | in
     return out
 
 
+def _cap_edges(edges: list[float], max_n: int = MAX_EDGES_PER_WINDOW) -> list[float]:
+    if len(edges) <= max_n:
+        return edges
+    step = max(1, len(edges) // max_n)
+    return edges[::step][:max_n]
+
+
 def _summarize_window(name: str, edges: list[dict[str, Any]]) -> dict[str, Any]:
     vals = [float(e["edge_after_fee"]) for e in edges]
     gross = sum(float(e["gross"]) for e in edges)
@@ -232,6 +240,9 @@ def main() -> int:
     edges_daily = [e for e in edges if int(e["close_ts"]) >= daily_from_ms]
     edges_run = [e for e in edges if int(e["close_ts"]) >= run_from_ms]
     edges_total = edges
+    daily_edges = [float(e["edge_after_fee"]) for e in edges_daily]
+    run_edges = [float(e["edge_after_fee"]) for e in edges_run]
+    total_edges = [float(e["edge_after_fee"]) for e in edges_total]
 
     report = {
         "generated_at_kst": now_kst.isoformat(),
@@ -249,6 +260,15 @@ def main() -> int:
             "daily": _summarize_window("DAILY", edges_daily),
             "run": _summarize_window("RUN", edges_run),
             "total": _summarize_window("TOTAL", edges_total),
+        },
+        "daily_edges": _cap_edges(daily_edges),
+        "run_edges": _cap_edges(run_edges),
+        "total_edges": _cap_edges(total_edges),
+        "raw_edge_samples_meta": {
+            "max_edges_per_window": MAX_EDGES_PER_WINDOW,
+            "daily_original_count": len(daily_edges),
+            "run_original_count": len(run_edges),
+            "total_original_count": len(total_edges),
         },
     }
 
