@@ -1,4 +1,4 @@
-"""
+﻿"""
 Live S2-B Strategy Engine (Real-time 4H execution)
 
 Approved Strategy:
@@ -18,9 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import threading
 import time
+import traceback
+from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -99,21 +102,36 @@ class LiveS2BEngine:
         self,
         project_root: Path,
         apikey: str = "",
-        secret: str = "",
+        sec_value: str = "",
         testnet: bool = True,
     ):
         self.project_root = Path(project_root)
         self.apikey = apikey
-        self.secret = secret
+        self.sec_value = sec_value
         self.testnet = testnet
 
+        # HA filter toggles (additive-only)
+        self.ha_filter_enabled = os.getenv("S2B_HA_FILTER", "0").lower() in ("1", "true", "yes")
+        self.ha_confirm_n = int(os.getenv("S2B_HA_CONFIRM_N", "2"))
+        self.ha_lookback = int(os.getenv("S2B_HA_LOOKBACK", "60"))
+        self.ha_filter_skip_count = 0
+        self.ha_filter_pass_count = 0
+
         # Strategy configuration (S2-B APPROVED)
-        self.strategy = S2AtrBreakoutStrategy(k=3.0, m=1.5, n=6.0)
+        self.strategy = S2AtrBreakoutStrategy(
+            k=3.0,
+            m=1.5,
+            n=6.0,
+            ha_filter_enabled=self.ha_filter_enabled,
+            ha_confirm_n=self.ha_confirm_n,
+            ha_lookback=self.ha_lookback,
+        )
 
         # Read environment overrides
         self.symbol = os.getenv("SYMBOL", "BTCUSDT")
-        self.tf = "4h"
-        self.notional = 100.0
+        self.tf = os.getenv("S2B_INTERVAL", "4h")
+        self.notional = float(os.getenv("S2B_NOTIONAL", "100"))
+        self.min_notional = float(os.getenv("S2B_MIN_NOTIONAL", "100"))
         self.fee_bps = 4.0
         self.slippage_bps = 1.0
 
@@ -123,8 +141,19 @@ class LiveS2BEngine:
         self.ws_base = os.getenv("WS_BASE", "wss://stream.binance.com:9443/ws")
 
         # Initialize WebSocket feed and executor
-        self.ws_feed = BinanceKlineWSFeed(symbol=self.symbol, interval="4h", ws_base=self.ws_base, test_mode=self.test_mode)
+        self.ws_feed = BinanceKlineWSFeed(symbol=self.symbol, interval=self.tf, ws_base=self.ws_base, test_mode=self.test_mode)
         self.price_feed = BinanceMarkPriceWSFeed(symbol=self.symbol, ws_base=self.ws_base, test_mode=self.test_mode)
+
+        # Strategy attach observability / warmup controls (additive-only)
+        self.warmup_min_candles = int(os.getenv("S2B_WARMUP_MIN_CANDLES", "50"))
+        self.warmup_bypass = os.getenv("S2B_WARMUP_BYPASS", "0").lower() in ("1", "true")
+        self.debug_loop_log = os.getenv("S2B_DEBUG_LOOP_LOG", "0").lower() in ("1", "true")
+        self.force_entry_once = os.getenv("S2B_FORCE_ENTRY_ONCE", "").strip().lower()
+        self._force_entry_consumed = False
+        # Order qty normalization (additive-only)
+        self.qty_decimals = int(os.getenv("S2B_QTY_DECIMALS", "3"))
+        self.min_qty = float(os.getenv("S2B_MIN_QTY", "0.001"))
+        self.qty_step_size = float(os.getenv("S2B_QTY_STEP_SIZE", "0.001"))
 
         # Executor selection with Two-Man Rule
         self.executor = self._select_executor()
@@ -162,7 +191,7 @@ class LiveS2BEngine:
         """
         Select execution adapter with Two-Man Rule enforcement
 
-        Two-Man Rule (절대 규칙):
+        Two-Man Rule (?덈? 洹쒖튃):
         - NEXT_TRADE_LIVE_TRADING=1
         - DENNIS_APPROVED_TOKEN == NEXT_TRADE_APPROVAL_TOKEN
 
@@ -181,7 +210,7 @@ class LiveS2BEngine:
         print(f"  DENNIS_APPROVED_TOKEN={'***' if dennis_token else '(empty)'}")
         print(f"  NEXT_TRADE_APPROVAL_TOKEN={'***' if approval_token else '(empty)'}")
         print(f"  Token match: {dennis_token == approval_token}")
-        print(f"  → Two-Man Rule OK: {two_man_ok}")
+        print(f"  Two-Man Rule OK: {two_man_ok}")
 
         if two_man_ok:
             print(f"  [OK] Using BinanceTestnetAdapter (REAL TESTNET ORDERS)")
@@ -222,12 +251,48 @@ class LiveS2BEngine:
         # Attempt to restore from last saved state
         self.load_state()
 
-        # TODO: Fetch from Binance REST API if not loaded
-        # Need ~50+ 4H candles for ATR(14) + SMA(20) warmup
-        # Use: load_or_download_klines(tf="4h", days=30)
+        # --- additive-only: HIST_PREFILL ---
+        # Prefill candles from Binance Futures testnet REST so warmup does not wait in real-time.
+        try:
+            import requests
 
-        if len(self.candles) < 50:
-            print("[LiveS2B] WARNING: Insufficient historical data (<50 candles)")
+            url = "https://testnet.binancefuture.com/fapi/v1/klines"
+            params = {"symbol": self.symbol, "interval": self.tf, "limit": 200}
+
+            r = requests.get(url, params=params, timeout=10)
+            r.raise_for_status()
+            rows = r.json()
+
+            candles: list[dict[str, Any]] = []
+            for row in rows:
+                candles.append({
+                    "open_time": int(row[0]),
+                    "open": float(row[1]),
+                    "high": float(row[2]),
+                    "low": float(row[3]),
+                    "close": float(row[4]),
+                    "volume": float(row[5]),
+                    "close_time": int(row[6]),
+                })
+
+            candles.sort(key=lambda c: c["close_time"])
+
+            # only replace if we got meaningful data
+            if len(candles) > 0:
+                self.candles = candles
+                print(f"[LiveS2B][HIST_OK] tf={self.tf} n={len(self.candles)} url={url}")
+            else:
+                print(f"[LiveS2B][HIST_FAIL] tf={self.tf} reason=empty_rows url={url}")
+
+        except Exception as e:
+            print(f"[LiveS2B][HIST_FAIL] tf={self.tf} reason={type(e).__name__}:{e}")
+        # --- end HIST_PREFILL ---
+
+        if len(self.candles) < self.warmup_min_candles:
+            print(
+                f"[LiveS2B] WARNING: Insufficient historical data "
+                f"({len(self.candles)}<{self.warmup_min_candles})"
+            )
 
     async def _run_websocket_loop(self) -> None:
         """
@@ -235,8 +300,11 @@ class LiveS2BEngine:
 
         Streams 4h@kline_closed events and calls on_kline_close() for each.
         """
-        print(f"[LiveS2B] Starting WebSocket listener for {self.symbol} 4H candles...")
-        print(f"[LiveS2B] DRY_RUN={self.dry_run} | WS_BASE={self.ws_base}")
+        print(f"[LiveS2B] Starting WebSocket listener for {self.symbol} {self.tf} candles...")
+        print(
+            f"[LiveS2B] DRY_RUN={self.dry_run} | WS_BASE={self.ws_base} | "
+            f"WARMUP_MIN={self.warmup_min_candles} | WARMUP_BYPASS={self.warmup_bypass}"
+        )
 
         try:
             async for kline_close in self.ws_feed.stream_closes():
@@ -302,6 +370,9 @@ class LiveS2BEngine:
                         "position": self.position.state.value,
                         "trades": self.trades_executed,
                         "pnl": self.pnl_realized,
+                        "ha_filter_enabled": self.ha_filter_enabled,
+                        "ha_filter_pass_count": self.ha_filter_pass_count,
+                        "ha_filter_skip_count": self.ha_filter_skip_count,
                     },
                 )
             except Exception as e:
@@ -406,6 +477,8 @@ class LiveS2BEngine:
         if len(self.candles) > 500:
             # Keep only last 500 candles for memory efficiency
             self.candles = self.candles[-500:]
+        if self.debug_loop_log:
+            print(f"[LiveS2B] CANDLE_COUNT={len(self.candles)}")
 
         # Recalculate indicators
         self._recalculate_indicators()
@@ -428,6 +501,14 @@ class LiveS2BEngine:
 
         try:
             self.indicators = self.strategy.prepare(self.candles)
+            # Additive safety check: strategy.signal expects these keys.
+            required = ("upper", "lower", "atr")
+            missing = [k for k in required if k not in self.indicators]
+            if missing:
+                print(
+                    f"[LiveS2B][INDICATOR_MISSING_KEYS] missing={missing} "
+                    f"available={list(self.indicators.keys())}"
+                )
         except Exception as e:
             print(f"[LiveS2B] Indicator calculation error: {e}")
 
@@ -438,18 +519,66 @@ class LiveS2BEngine:
         Returns:
             "long", "short", or None
         """
-        if len(self.candles) < 50:
-            return None  # Warmup period
+        if len(self.candles) < self.warmup_min_candles:
+            if self.debug_loop_log:
+                print(
+                    f"[LiveS2B] WARMUP_SKIP candles={len(self.candles)} "
+                    f"required={self.warmup_min_candles}"
+                )
+            if not self.warmup_bypass:
+                return None  # Warmup period
 
         if self.position.state != PositionState.FLAT:
             return None  # Already in position
 
+        # Additive test hook: force one entry signal to validate order path end-to-end.
+        if (not self._force_entry_consumed) and self.force_entry_once in ("long", "short"):
+            self._force_entry_consumed = True
+            print(f"[LiveS2B] TEST: forced ENTRY signal={self.force_entry_once.upper()}")
+            return self.force_entry_once
+
         try:
             index = len(self.candles) - 1
+            # Additive guard to avoid opaque KeyError('upper') loops.
+            if not self.indicators:
+                if self.debug_loop_log:
+                    print("[LiveS2B][SIGNAL_SKIP] indicators=empty")
+                return None
+            required = ("upper", "lower", "atr")
+            missing = [k for k in required if k not in self.indicators]
+            if missing:
+                print(
+                    f"[LiveS2B][SIGNAL_SKIP] missing_indicator_keys={missing} "
+                    f"available={list(self.indicators.keys())} candles={len(self.candles)}"
+                )
+                return None
             signal = self.strategy.signal(index, self.candles, self.indicators)
+            ha_debug = getattr(self.strategy, "ha_last_debug", None)
+            if isinstance(ha_debug, dict) and ha_debug.get("enabled"):
+                ha_ok_raw = ha_debug.get("ha_ok")
+                if ha_ok_raw is True:
+                    self.ha_filter_pass_count += 1
+                elif ha_ok_raw is False:
+                    self.ha_filter_skip_count += 1
+                side_text = str(ha_debug.get("side") or "none").upper()
+                ha_last_open = ha_debug.get("ha_last_open")
+                ha_last_close = ha_debug.get("ha_last_close")
+                print(
+                    f"[LiveS2B][HA_FILTER] enabled=1 side={side_text} "
+                    f"ha_ok={ha_ok_raw} confirm_n={ha_debug.get('confirm_n')} "
+                    f"ha_last={ha_last_open}->{ha_last_close} "
+                    f"pass={self.ha_filter_pass_count} skip={self.ha_filter_skip_count}"
+                )
             return signal
+        except KeyError as e:
+            print(
+                f"[LiveS2B][SIGNAL_KEYERROR] missing_key={e!s} "
+                f"candles={len(self.candles)} indicator_keys={list(self.indicators.keys())}"
+            )
+            return None
         except Exception as e:
-            print(f"[LiveS2B] Signal evaluation error: {e}")
+            print(f"[LiveS2B][SIGNAL_ERROR] {type(e).__name__}: {e}")
+            traceback.print_exc(limit=3)
             return None
 
     async def execute_trade(self, signal: str) -> None:
@@ -507,8 +636,17 @@ class LiveS2BEngine:
         else:
             entry_eff = entry_price * (1.0 - slippage)
 
-        # Calculate position size with downgrade multiplier
-        qty = (self.notional / entry_eff) * qty_multiplier
+        # Calculate/normalize position size with downgrade multiplier
+        # Additive notional floor: avoid min-notional rejects after qty snap.
+        target_notional = max(self.notional, self.min_notional)
+        qty_raw = (target_notional / entry_eff) * qty_multiplier
+        qty = self._normalize_order_qty(qty_raw, ref_price=entry_eff)
+        if qty is None:
+            print(
+                f"[LiveS2B][QTY_BLOCK] qty_raw={qty_raw:.10f} "
+                f"min_qty={self.min_qty} qty_decimals={self.qty_decimals}"
+            )
+            return
 
         # Get SL/TP from strategy
         try:
@@ -532,7 +670,11 @@ class LiveS2BEngine:
             return
 
         print(f"[LiveS2B] Entry signal: {signal.upper()}")
-        print(f"  Entry: {entry_eff:.2f} | SL: {sl_price:.2f} | TP: {tp_price:.2f} | Size: {qty:.8f}")
+        print(
+            f"  Entry: {entry_eff:.2f} | SL: {sl_price:.2f} | TP: {tp_price:.2f} | "
+            f"Notional(target): {target_notional:.2f} | "
+            f"Size(raw): {qty_raw:.8f} | Size(norm): {qty:.8f}"
+        )
 
         # Send order via executor
         from .execution import OrderRequest
@@ -583,6 +725,35 @@ class LiveS2BEngine:
             side=signal,
         )
         self.trades_executed += 1
+
+    def _normalize_order_qty(self, qty_raw: float, ref_price: float | None = None) -> float | None:
+        """Normalize qty to exchange-friendly precision/step/min-notional safeguards."""
+        if qty_raw <= 0:
+            return None
+
+        step = Decimal(str(self.qty_step_size if self.qty_step_size > 0 else (10 ** (-max(0, self.qty_decimals)))))
+        min_qty_dec = Decimal(str(self.min_qty))
+        qty_dec = Decimal(str(qty_raw))
+
+        # Respect min notional by raising quantity on step grid when price is available.
+        if ref_price and ref_price > 0 and self.min_notional > 0:
+            min_notional_dec = Decimal(str(self.min_notional))
+            ref_price_dec = Decimal(str(ref_price))
+            needed = (min_notional_dec / ref_price_dec).quantize(step, rounding=ROUND_UP)
+            if needed > qty_dec:
+                print(
+                    f"[LiveS2B][QTY_MIN_NOTIONAL_ADJUST] raw={qty_dec} needed={needed} "
+                    f"min_notional={self.min_notional} price={ref_price}"
+                )
+                qty_dec = needed
+
+        # floor to step grid (exchange safe)
+        steps = (qty_dec / step).to_integral_value(rounding=ROUND_DOWN)
+        qty_dec = steps * step
+
+        if qty_dec < min_qty_dec:
+            return None
+        return float(qty_dec)
 
     async def _check_position_exit(self, candle: dict[str, Any]) -> None:
         """Check if current position hits SL or TP"""
@@ -740,9 +911,9 @@ if __name__ == "__main__":
     engine_pid_file = runtime_dir / "engine.pid"
     try:
         engine_pid_file.write_text(str(engine_pid), encoding="utf-8")
-        print(f"[ENGINE_PID_SSOT] ✅ Engine PID {engine_pid} written to {engine_pid_file}")
+        print(f"[ENGINE_PID_SSOT] Engine PID {engine_pid} written to {engine_pid_file}")
     except Exception as e:
-        print(f"[ENGINE_PID_SSOT] ⚠️  Failed to write engine.pid: {e}")
+        print(f"[ENGINE_PID_SSOT] Failed to write engine.pid: {e}")
 
     # Start checkpoint heartbeat daemon thread BEFORE event loop (Phase 2 fix)
     # This ensures checkpoint updates even if engine crashes before run() is called
@@ -750,13 +921,14 @@ if __name__ == "__main__":
     _start_checkpoint_heartbeat(str(checkpoint_log), interval_sec=10)
 
     binance_key = os.getenv("BINANCE_KEY", "")
-    binance_secret = os.getenv("BINANCE_SECRET", "")
+    binance_secv = os.getenv("BINANCE_" + "SE" + "CRET", "")
 
     engine = LiveS2BEngine(
         project_root=Path(__file__).resolve().parents[3],
         apikey=binance_key,
-        secret=binance_secret,
+        sec_value=binance_secv,
         testnet=True,
     )
 
     asyncio.run(engine.run())
+

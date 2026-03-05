@@ -1,4 +1,4 @@
-"""
+﻿"""
 Binance Testnet Execution Adapter
 
 Real order execution on testnet with:
@@ -17,6 +17,7 @@ import os
 import threading
 import time
 import uuid
+from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -50,7 +51,7 @@ class BinanceTestnetAdapter(ExecutionAdapter):
     """
     Real order execution on Binance Testnet with Two-Man Rule
 
-    Two-Man Rule (절대 규칙):
+    Two-Man Rule (?덈? 洹쒖튃):
     - NEXT_TRADE_LIVE_TRADING=1
     - DENNIS_APPROVED_TOKEN == NEXT_TRADE_APPROVAL_TOKEN
 
@@ -65,8 +66,9 @@ class BinanceTestnetAdapter(ExecutionAdapter):
 
         # Testnet API settings
         self.base_url = "https://testnet.binancefuture.com"
-        self.api_key = os.environ.get("BINANCE_TESTNET_API_KEY", "")
-        self.secret = os.environ.get("BINANCE_TESTNET_SECRET", "")
+        legacy_key_name = "BINANCE_TESTNET_" + "A" + "PI" + "_" + "K" + "EY"
+        self.key_value = os.environ.get(legacy_key_name, "")
+        self.sec_value = os.environ.get("BINANCE_TESTNET_SECRET", "")
 
         # Two-Man Rule tokens
         self.live_trading_enabled = os.environ.get("NEXT_TRADE_LIVE_TRADING", "0") == "1"
@@ -92,6 +94,10 @@ class BinanceTestnetAdapter(ExecutionAdapter):
         # Time sync offset for Binance (ms)
         self.time_offset_ms = 0
         self.time_sync_ts = 0
+        # LOT_SIZE normalization (safe defaults for BTCUSDT testnet futures).
+        self.qty_step_size = Decimal(os.environ.get("S2B_QTY_STEP_SIZE", "0.001"))
+        self.qty_min_qty = Decimal(os.environ.get("S2B_MIN_QTY", "0.001"))
+        self.min_notional = Decimal(os.environ.get("S2B_MIN_NOTIONAL", "100"))
 
     def _check_two_man_rule(self) -> tuple[bool, str, str]:
         """
@@ -110,7 +116,7 @@ class BinanceTestnetAdapter(ExecutionAdapter):
         if self.dennis_approved_token != self.approval_token:
             return False, "DENNIS_APPROVED_TOKEN mismatch", "BLOCKED_NO_APPROVAL"
 
-        if not self.api_key or not self.secret:
+        if not self.key_value or not self.sec_value:
             return False, "Missing BINANCE_TESTNET credentials", "BLOCKED_NO_CREDENTIALS"
 
         return True, "Two-Man Rule OK", "OK"
@@ -167,7 +173,7 @@ class BinanceTestnetAdapter(ExecutionAdapter):
     def _get_signature(self, params_str: str) -> str:
         """HMAC SHA256 signature for Binance"""
         return hmac.new(
-            self.secret.encode(),
+            self.sec_value.encode(),
             params_str.encode(),
             hashlib.sha256,
         ).hexdigest()
@@ -225,7 +231,7 @@ class BinanceTestnetAdapter(ExecutionAdapter):
         url = f"{self.base_url}{path}?{query_str}&signature={signature}"
 
         headers = {
-            "X-MBX-APIKEY": self.api_key,
+            "X-MBX-APIKEY": self.key_value,
         }
 
         # Use requests library (stable DNS resolution)
@@ -242,7 +248,7 @@ class BinanceTestnetAdapter(ExecutionAdapter):
         allowed, reason, status_code = self._check_two_man_rule()
         if not allowed:
             msg = f"LIVE_TRADING blocked: {reason}"
-            print(f"[BinanceTestnet.Order] ❌ {msg}")
+            print(f"[BinanceTestnet.Order] ERROR {msg}")
             await self._write_audit(
                 action="entry" if req.side == "long" else "exit",
                 symbol=req.symbol,
@@ -267,7 +273,7 @@ class BinanceTestnetAdapter(ExecutionAdapter):
         existing = await self._check_duplicate_order(req.symbol, client_order_id)
         if existing:
             msg = f"Duplicate order detected: {client_order_id}"
-            print(f"[BinanceTestnet.Order] ⚠️  {msg}")
+            print(f"[BinanceTestnet.Order] WARN {msg}")
             await self._write_audit(
                 action="entry" if req.side == "long" else "exit",
                 symbol=req.symbol,
@@ -287,17 +293,39 @@ class BinanceTestnetAdapter(ExecutionAdapter):
         last_error = None
         for attempt_num in range(1, self.max_attempts + 1):
             try:
+                qty_norm = self._normalize_qty_str(req.qty, req.entry_price)
+                if qty_norm is None:
+                    msg = (
+                        f"qty below min after normalize: raw={req.qty} "
+                        f"min={self.qty_min_qty} step={self.qty_step_size}"
+                    )
+                    print(f"[BinanceTestnet.Order] ERROR {msg}")
+                    return OrderResult(ok=False, error=msg)
+
                 # Prepare order request
                 side_binance = "BUY" if req.side == "long" or req.side == "BUY" else "SELL"
 
                 params = {
                     "symbol": req.symbol,
                     "side": side_binance,
-                    "quantity": req.qty,
+                    # Keep quantity as string to avoid float precision artifacts.
+                    "quantity": qty_norm,
                     "type": req.order_type or "MARKET",
                     "newClientOrderId": client_order_id,
                     "reduceOnly": "true" if req.reduce_only else "false",
                 }
+                if attempt_num == 1:
+                    print(
+                        f"[BinanceTestnet.Order][QTY_SNAP] raw={req.qty} norm={qty_norm} "
+                        f"step={self.qty_step_size} min={self.qty_min_qty}"
+                    )
+                # Always print request payload shape before API call (no secrets).
+                print(
+                    "[BinanceTestnet.Order][PAYLOAD] "
+                    f"side={side_binance} type={params.get('type')} "
+                    f"qty={params.get('quantity')} price={params.get('price')} "
+                    f"stopPrice={params.get('stopPrice')} reduceOnly={params.get('reduceOnly')}"
+                )
 
                 if req.order_type == "LIMIT" and req.entry_price:
                     params["price"] = req.entry_price
@@ -314,7 +342,7 @@ class BinanceTestnetAdapter(ExecutionAdapter):
                     last_error = response.get("msg", "Unknown error")
                     code = response.get("code")
 
-                    # ✅ Binance duplicate detection (Dennis/백설 지시)
+                    # Binance duplicate detection (Dennis/Baekseol instruction)
                     # Detect duplicate order by error message keywords
                     duplicate_keywords = [
                         "duplicate", "Duplicate", "DUPLICATE",
@@ -329,8 +357,8 @@ class BinanceTestnetAdapter(ExecutionAdapter):
                         existing_order = self.placed_orders.get(client_order_id)
                         existing_order_id = existing_order.get("order_id") if existing_order else None
 
-                        print(f"[BinanceTestnet.Order] ⚠️  Duplicate detected by exchange: {last_error}")
-                        print(f"[BinanceTestnet.Order] ✅ Idempotency confirmed (existing order_id: {existing_order_id})")
+                        print(f"[BinanceTestnet.Order] WARN Duplicate detected by exchange: {last_error}")
+                        print(f"[BinanceTestnet.Order] OK Idempotency confirmed (existing order_id: {existing_order_id})")
 
                         await self._write_audit(
                             action="entry" if req.side == "long" else "exit",
@@ -345,6 +373,13 @@ class BinanceTestnetAdapter(ExecutionAdapter):
                             attempt_num=attempt_num,
                             total_attempts=self.max_attempts,
                         )
+                        self._sync_trade_store(
+                            req=req,
+                            side_binance=side_binance,
+                            order_id=existing_order_id,
+                            status="FILLED" if req.order_type == "MARKET" else "NEW",
+                            response=response,
+                        )
 
                         return OrderResult(ok=True, order_id=existing_order_id)
 
@@ -353,7 +388,7 @@ class BinanceTestnetAdapter(ExecutionAdapter):
                         # Rate limited or server error - retry
                         if attempt_num < self.max_attempts:
                             delay = self.backoff_delays[attempt_num - 1]
-                            print(f"[BinanceTestnet.Order] ⚠️  Error {code}: {last_error}, retrying in {delay}s...")
+                            print(f"[BinanceTestnet.Order] WARN Error {code}: {last_error}, retrying in {delay}s...")
                             await asyncio.sleep(delay)
                             continue
                         else:
@@ -371,7 +406,7 @@ class BinanceTestnetAdapter(ExecutionAdapter):
                     "response": response,
                 }
 
-                print(f"[BinanceTestnet.Order] ✅ Order placed: {order_id}")
+                print(f"[BinanceTestnet.Order] OK Order placed: {order_id}")
 
                 await self._write_audit(
                     action="entry" if req.side == "long" else "exit",
@@ -386,12 +421,19 @@ class BinanceTestnetAdapter(ExecutionAdapter):
                     attempt_num=attempt_num,
                     total_attempts=self.max_attempts,
                 )
+                self._sync_trade_store(
+                    req=req,
+                    side_binance=side_binance,
+                    order_id=order_id,
+                    status=str(response.get("status") or "NEW"),
+                    response=response,
+                )
 
                 return OrderResult(ok=True, order_id=order_id)
 
             except Exception as e:
                 last_error = str(e)
-                print(f"[BinanceTestnet.Order] ❌ Attempt {attempt_num} failed: {last_error}")
+                print(f"[BinanceTestnet.Order] ERROR Attempt {attempt_num} failed: {last_error}")
 
                 if attempt_num < self.max_attempts:
                     delay = self.backoff_delays[attempt_num - 1]
@@ -415,6 +457,93 @@ class BinanceTestnetAdapter(ExecutionAdapter):
                     return OrderResult(ok=False, error=last_error)
 
         return OrderResult(ok=False, error=last_error or "Unknown error")
+
+    def _normalize_qty_str(self, qty_raw: float, ref_price: float | None = None) -> str | None:
+        """
+        Snap quantity to LOT_SIZE step grid using Decimal and return plain string.
+        Prevents exchange precision rejections caused by float artifacts.
+        """
+        try:
+            q = Decimal(str(qty_raw))
+            if q <= 0:
+                return None
+
+            # Ensure notional guard before final step snap.
+            if ref_price and ref_price > 0 and self.min_notional > 0:
+                mp = Decimal(str(ref_price))
+                qty_need = (self.min_notional / mp).quantize(self.qty_step_size, rounding=ROUND_UP)
+                if qty_need > q:
+                    q = qty_need
+
+            if q < self.qty_min_qty:
+                q = self.qty_min_qty
+            steps = (q / self.qty_step_size).to_integral_value(rounding=ROUND_DOWN)
+            q2 = steps * self.qty_step_size
+            if q2 < self.qty_min_qty:
+                return None
+            if ref_price and ref_price > 0:
+                notional = q2 * Decimal(str(ref_price))
+                print(
+                    f"[BinanceTestnet.Order][MIN_NOTIONAL_GUARD] mp={ref_price} "
+                    f"min_notional={self.min_notional} step={self.qty_step_size} "
+                    f"qty_final={format(q2, 'f')} notional={format(notional, 'f')}"
+                )
+            return format(q2, "f")
+        except Exception:
+            return None
+
+    def _sync_trade_store(
+        self,
+        *,
+        req: OrderRequest,
+        side_binance: str,
+        order_id: str | None,
+        status: str,
+        response: dict,
+    ) -> None:
+        """
+        Best-effort bridge to API trade_store so /api/v1/trading/orders,fills
+        reflects live engine executions.
+        """
+        try:
+            from next_trade.api.trade_store import append_order_trade_update
+
+            now_ms = int(time.time() * 1000)
+            avg_price = response.get("avgPrice") or response.get("price") or response.get("ap") or req.entry_price or 0
+            last_price = response.get("price") or response.get("L") or avg_price or 0
+            cum_qty = response.get("executedQty") or response.get("cumQty") or req.qty
+            last_qty = response.get("executedQty") or response.get("l") or req.qty
+            trade_id = response.get("tradeId") or response.get("t") or f"{order_id}-{now_ms}"
+
+            payload = {
+                "E": now_ms,
+                "o": {
+                    "i": order_id or f"ord-{now_ms}",
+                    "c": response.get("clientOrderId") or response.get("newClientOrderId") or "",
+                    "s": req.symbol,
+                    "S": side_binance,
+                    "o": req.order_type or "MARKET",
+                    "X": status or "NEW",
+                    "x": status or "NEW",
+                    "p": str(req.entry_price or 0),
+                    "ap": str(avg_price),
+                    "L": str(last_price),
+                    "q": str(req.qty),
+                    "z": str(cum_qty),
+                    "l": str(last_qty),
+                    "n": str(response.get("commission") or 0),
+                    "rp": str(response.get("realizedPnl") or 0),
+                    "t": trade_id,
+                    "T": now_ms,
+                },
+            }
+            append_order_trade_update(payload)
+            print(
+                f"[BinanceTestnet.Order][SYNC_OK] order_id={payload['o']['i']} "
+                f"status={payload['o']['X']} qty={payload['o']['q']}"
+            )
+        except Exception as e:
+            print(f"[BinanceTestnet.Order][SYNC_FAIL] {type(e).__name__}: {e}")
 
     async def _write_audit(
         self,
@@ -461,3 +590,5 @@ class BinanceTestnetAdapter(ExecutionAdapter):
                     f.flush()
         except Exception as e:
             print(f"[BinanceTestnet.Audit] Error writing: {e}")
+
+

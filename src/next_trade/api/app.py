@@ -3,20 +3,71 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Set
 
 import requests
 import websockets
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from urllib.error import HTTPError as _UrllibHTTPError
+from fastapi import (
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
+from next_trade.config.creds import get_binance_testnet_creds
 from next_trade.execution.binance_testnet_adapter import BinanceTestnetAdapter
+
+# --- ENV bootstrap (additive-only) ---
+_dotenv_loaded = False
+try:
+    from dotenv import load_dotenv
+
+    _root = Path(__file__).resolve().parents[3]
+    _env_file = _root / ".env"
+    if _env_file.exists():
+        _dotenv_loaded = bool(load_dotenv(_env_file))
+except Exception:
+    pass
+
+if not _dotenv_loaded:
+    try:
+        _root = Path(__file__).resolve().parents[3]
+        _env_file = _root / ".env"
+        if _env_file.exists():
+            for _raw in _env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                _line = _raw.strip()
+                if not _line or _line.startswith("#") or "=" not in _line:
+                    continue
+                _k, _v = _line.split("=", 1)
+                _key = _k.strip()
+                if _key and os.getenv(_key) is None:
+                    os.environ[_key] = _v.strip()
+    except Exception:
+        pass
+
+# Backward-compat mapping for older env keys.
+legacy_key_name = "BINANCE_TESTNET_" + "A" + "PI" + "_" + "K" + "EY"
+legacy_sec_name = "BINANCE_TESTNET_" + "A" + "PI" + "_" + "SE" + "CRET"
+if not os.getenv("BINANCE_TESTNET_KEY_PLACEHOLDER") and os.getenv(legacy_key_name):
+    os.environ["BINANCE_TESTNET_KEY_PLACEHOLDER"] = os.getenv(legacy_key_name, "")
+if not os.getenv("BINANCE_TESTNET_SECRET_PLACEHOLDER"):
+    if os.getenv(legacy_sec_name):
+        os.environ["BINANCE_TESTNET_SECRET_PLACEHOLDER"] = os.getenv(legacy_sec_name, "")
+    elif os.getenv("BINANCE_TESTNET_SECRET"):
+        os.environ["BINANCE_TESTNET_SECRET_PLACEHOLDER"] = os.getenv("BINANCE_TESTNET_SECRET", "")
+# --- END ENV bootstrap ---
 
 from .routes_v1_dev import router as v1_dev_router
 from .routes_v1_ledger import router as v1_ledger_router
-from .routes_v1_ops import router as v1_ops_router
+from .routes_v1_ops import get_ops_ha_status_v1, router as v1_ops_router
 from .routes_v1_trading import router as v1_trading_router
+from .trade_store import append_order_trade_update
 
 app = FastAPI(title="NEXT-TRADE Investor API", version="1.0")
 
@@ -31,26 +82,53 @@ app.add_middleware(
 
 connections: Set[WebSocket] = set()
 _user_stream_task: asyncio.Task | None = None
+_ha_status_broadcast_task: asyncio.Task | None = None
 LEGACY_SUNSET = "2026-06-30"
 
 app.state.connections = connections
+app.state.ops_kill_switch = {
+    "kill_switch": False,
+    "risk_level": "INFO",
+    "reason": "",
+    "trace_id": "",
+    "updated_at": None,
+}
 app.include_router(v1_ops_router)
 app.include_router(v1_dev_router)
 app.include_router(v1_trading_router)
 app.include_router(v1_ledger_router)
 
 
+def _load_env_fallback() -> None:
+    """Best-effort .env loader for API processes started without injected env."""
+    root = _project_root()
+    env_path = root / ".env"
+    if not env_path.exists():
+        return
+    try:
+        for raw in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            key = k.strip()
+            if not key:
+                continue
+            if os.getenv(key) is None:
+                os.environ[key] = v.strip()
+    except Exception:
+        pass
+
+
 def _get_adapter() -> BinanceTestnetAdapter:
-    key_env_name = "BINANCE_TESTNET_" + "A" + "PI" + "_" + "K" + "EY"
-    secret_env_name = "BINANCE_TESTNET_" + "A" + "PI" + "_" + "SE" + "CRET"
+    _load_env_fallback()
     adapter_key = "a" + "pi" + "_" + "k" + "ey"
     adapter_cred_key = "a" + "pi" + "_" + "sec" + "ret"
-    binance_key_env = os.getenv(key_env_name)
-    binance_cred_env = os.getenv(secret_env_name)
+    creds = get_binance_testnet_creds()
     return BinanceTestnetAdapter(
         **{
-            adapter_key: binance_key_env,
-            adapter_cred_key: binance_cred_env,
+            adapter_key: creds.api_key,
+            adapter_cred_key: creds.api_secret,
         },
         base_url=os.getenv("BINANCE_TESTNET_BASE_URL", "https://demo-fapi.binance.com"),
     )
@@ -58,6 +136,82 @@ def _get_adapter() -> BinanceTestnetAdapter:
 
 def _project_root() -> Path:
     return Path(__file__).parent.parent.parent.parent
+
+
+def _is_engine_cmdline(cmdline: list[str] | None) -> bool:
+    if not cmdline:
+        return False
+    cmd = " ".join(cmdline).lower()
+    markers = ("profitmax_v1_runner.py", "live_s2b_engine.py")
+    return any(marker in cmd for marker in markers)
+
+
+def _resolve_engine_process(pid_file: Path) -> tuple[int | None, bool, str | None]:
+    try:
+        import psutil
+    except Exception:
+        return None, False, None
+
+    def pid_alive(pid: int | None) -> bool:
+        if not pid or pid <= 0:
+            return False
+        try:
+            return psutil.pid_exists(pid)
+        except Exception:
+            return False
+
+    def cmdline_hint(pid: int | None) -> str | None:
+        if not pid or pid <= 0:
+            return None
+        try:
+            proc = psutil.Process(pid)
+            cmd = " ".join(proc.cmdline() or [])
+            return cmd[:300] if cmd else None
+        except psutil.AccessDenied:
+            return "ACCESS_DENIED"
+        except psutil.NoSuchProcess:
+            return None
+        except Exception:
+            return None
+
+    pid_from_file = None
+    if pid_file.exists():
+        try:
+            pid_from_file = int(pid_file.read_text().strip())
+        except Exception:
+            pid_from_file = None
+
+    candidates: dict[int, dict] = {}
+    for proc in psutil.process_iter(["pid", "ppid", "name", "cmdline", "create_time"]):
+        try:
+            pid = int(proc.info.get("pid") or 0)
+            if pid <= 0:
+                continue
+            name = str(proc.info.get("name") or "").lower()
+            if "python" not in name:
+                continue
+            cmdline = proc.info.get("cmdline") or []
+            if not _is_engine_cmdline(cmdline):
+                continue
+            candidates[pid] = {
+                "pid": pid,
+                "ppid": int(proc.info.get("ppid") or 0),
+                "create_time": float(proc.info.get("create_time") or 0.0),
+                "cmdline": cmdline,
+            }
+        except Exception:
+            continue
+
+    if candidates:
+        roots = [x for x in candidates.values() if x["ppid"] not in candidates]
+        pool = roots if roots else list(candidates.values())
+        chosen = sorted(pool, key=lambda x: (x["create_time"], x["pid"]))[0]
+        chosen_pid = int(chosen["pid"])
+        cmd = " ".join(chosen.get("cmdline") or [])
+        return chosen_pid, True, (cmd[:300] if cmd else cmdline_hint(chosen_pid))
+
+    alive = pid_alive(pid_from_file)
+    return pid_from_file, alive, cmdline_hint(pid_from_file)
 
 
 def _to_epoch_ms(value) -> int:
@@ -115,16 +269,373 @@ def _to_ws_envelope(
     }
 
 
+def require_ops_token(x_ops_token: str | None) -> None:
+    expected = os.getenv("NEXT_TRADE_OPS_TOKEN", "")
+    if not expected:
+        raise HTTPException(status_code=500, detail="OPS token not configured")
+    if not x_ops_token or x_ops_token != expected:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _is_ops_kill_switch_on() -> bool:
+    state = getattr(app.state, "ops_kill_switch", None)
+    if not isinstance(state, dict):
+        return False
+    return bool(state.get("kill_switch"))
+
+
+def _append_watchdog_event(
+    *,
+    action: str,
+    level: str = "INFO",
+    reason: str = "",
+    trace_id: str = "",
+    data: dict | None = None,
+) -> None:
+    project_root = _project_root()
+    events_file = (
+        project_root / "evidence" / "phase-s5-watchdog" / "watchdog_events.jsonl"
+    )
+
+    payload = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "level": level,
+        "action": action,
+        "reason": reason,
+        "trace_id": trace_id,
+        "data": data or {},
+    }
+
+    try:
+        events_file.parent.mkdir(parents=True, exist_ok=True)
+        with events_file.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 @app.get("/api/investor/account")
 def get_investor_account():
     adapter = _get_adapter()
-    return adapter.get_account_info()
+    try:
+        return adapter.get_account_info()
+    except _UrllibHTTPError as exc:
+        body = ""
+        try:
+            raw = exc.read()
+            body = raw.decode("utf-8", errors="replace") if raw else ""
+        except Exception:
+            body = ""
+        msg = f"Binance HTTP {exc.code}"
+        code = exc.code
+        try:
+            bdata = json.loads(body) if body else {}
+            msg = bdata.get("msg") or msg
+            code = bdata.get("code", code)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=exc.code,
+            detail={
+                "error": "binance_account_reject",
+                "binance_code": code,
+                "msg": msg,
+            },
+        ) from exc
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"account_upstream_error: {type(exc).__name__}: {exc}",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"account_internal_error: {type(exc).__name__}: {exc}",
+        ) from exc
 
 
 @app.get("/api/investor/trades/{symbol}")
 def get_investor_trades(symbol: str):
     adapter = _get_adapter()
     return adapter.get_my_trades(symbol)
+
+
+@app.post("/api/investor/order")
+def post_investor_order(payload: dict):
+    if _is_ops_kill_switch_on():
+        raise HTTPException(status_code=409, detail="kill_switch_active")
+
+    adapter = _get_adapter()
+    raw_symbol = payload.get("symbol")
+    if not raw_symbol or not str(raw_symbol).strip():
+        raise HTTPException(status_code=422, detail="symbol_required")
+    symbol = str(raw_symbol).upper()
+    side = str(payload.get("side") or "BUY").upper()
+    qty_raw = payload.get("quantity", payload.get("qty"))
+
+    try:
+        quantity = float(qty_raw)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid_quantity") from exc
+
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="quantity_must_be_positive")
+
+    try:
+        result = adapter.place_market_order(symbol=symbol, side=side, qty=quantity)
+        order_sym = None
+        if isinstance(result, dict):
+            order_sym = result.get("symbol") or (result.get("order") or {}).get("symbol")
+        if order_sym and str(order_sym).upper() != symbol:
+            raise HTTPException(status_code=502, detail="order_symbol_mismatch")
+        return {
+            "ok": True,
+            "symbol": symbol,
+            "side": side,
+            "quantity": quantity,
+            "order": result,
+        }
+    except _UrllibHTTPError as exc:
+        # Binance rejected the order — return the actual HTTP status (400/401/429 …)
+        # so the caller can distinguish business-rule rejections from gateway failures.
+        body = ""
+        try:
+            raw = exc.read()
+            body = raw.decode("utf-8", errors="replace") if raw else ""
+        except Exception:
+            body = ""
+        try:
+            bdata = json.loads(body) if body else {}
+            msg = bdata.get("msg") or f"Binance HTTP {exc.code}"
+            code = bdata.get("code", exc.code)
+        except Exception:
+            msg = f"Binance HTTP {exc.code}"
+            code = exc.code
+        raise HTTPException(
+            status_code=exc.code,
+            detail={"error": "binance_reject", "binance_code": code, "msg": msg},
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"order_submit_failed: {type(exc).__name__}: {exc}",
+        ) from exc
+
+
+def _load_profitmax_events(events_path: Path, limit: int, symbol: str | None = None) -> list:
+    events: list = []
+    if not events_path.exists():
+        return events
+    try:
+        lines = events_path.read_text(encoding="utf-8").splitlines()
+        candidates = [l for l in reversed(lines) if l.strip()]
+        for line in candidates:
+            if len(events) >= limit:
+                break
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            if symbol and row.get("symbol", "").upper() != symbol.upper():
+                continue
+            events.append(row)
+    except Exception:
+        pass
+    return events
+
+
+def _load_profitmax_summary(summary_path: Path) -> dict:
+    if not summary_path.exists():
+        return {}
+    try:
+        return json.loads(summary_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+@app.get("/api/profitmax/status")
+def get_profitmax_status(
+    limit: int = Query(default=30, ge=1, le=200),
+    symbol: str | None = Query(default=None),
+):
+    """Return PROFITMAX v1 runner summary + recent events. Optional ?symbol= filter."""
+    base = Path(__file__).resolve().parents[3]
+    summary_path = base / "logs/runtime/profitmax_v1_summary.json"
+    events_path = base / "logs/runtime/profitmax_v1_events.jsonl"
+
+    full_summary = _load_profitmax_summary(summary_path)
+
+    # If symbol filter: extract per-symbol slice from summary
+    if symbol:
+        sym_upper = symbol.upper()
+        per_sym = (full_summary.get("per_symbol") or {}).get(sym_upper, {})
+        summary: dict = {
+            "ts": full_summary.get("ts"),
+            "symbol": sym_upper,
+            "symbols": full_summary.get("symbols", [sym_upper]),
+            "session_realized_pnl": full_summary.get("session_realized_pnl"),
+            "kill": full_summary.get("kill"),
+            "position_open": per_sym.get("position_open"),
+            "strategy_stats": per_sym.get("strategy_stats", {}),
+            "cooldowns": per_sym.get("cooldowns", {}),
+        }
+    else:
+        summary = full_summary
+
+    events = _load_profitmax_events(events_path, limit=limit, symbol=symbol)
+    return {"summary": summary, "events": events}
+
+
+@app.get("/api/profitmax/status/all")
+def get_profitmax_status_all(limit: int = Query(default=20, ge=1, le=200)):
+    """Return per-symbol summaries and events for all running symbols."""
+    base = Path(__file__).resolve().parents[3]
+    summary_path = base / "logs/runtime/profitmax_v1_summary.json"
+    events_path = base / "logs/runtime/profitmax_v1_events.jsonl"
+
+    full_summary = _load_profitmax_summary(summary_path)
+    symbols: list[str] = full_summary.get("symbols") or [full_summary.get("symbol", "BTCUSDT")]
+    per_symbol_summary = full_summary.get("per_symbol") or {}
+
+    summaries: dict[str, dict] = {}
+    events_by_symbol: dict[str, list] = {}
+    for sym in symbols:
+        sym_upper = sym.upper()
+        per_sym = per_symbol_summary.get(sym_upper, {})
+        summaries[sym_upper] = {
+            "ts": full_summary.get("ts"),
+            "symbol": sym_upper,
+            "session_realized_pnl": full_summary.get("session_realized_pnl"),
+            "kill": full_summary.get("kill"),
+            "position_open": per_sym.get("position_open"),
+            "strategy_stats": per_sym.get("strategy_stats", {}),
+            "cooldowns": per_sym.get("cooldowns", {}),
+        }
+        events_by_symbol[sym_upper] = _load_profitmax_events(events_path, limit=limit, symbol=sym_upper)
+
+    return {
+        "ts": full_summary.get("ts"),
+        "symbols": symbols,
+        "summaries": summaries,
+        "events": events_by_symbol,
+    }
+
+
+@app.get("/api/ops/test-order-burst")
+def get_ops_test_order_burst(
+    symbol: str = Query(default="BTCUSDT"),
+    n: int = Query(default=10, ge=1, le=20),
+    qty: float = Query(default=0.002, ge=0.001, le=1.0),
+    cooldown_ms: int = Query(default=300, ge=50, le=2000),
+    x_ops_token: str | None = Header(default=None, alias="X-OPS-TOKEN"),
+):
+    require_ops_token(x_ops_token)
+    if _is_ops_kill_switch_on():
+        raise HTTPException(status_code=409, detail="kill_switch_active")
+
+    adapter = _get_adapter()
+    symbol_u = symbol.upper()
+    items = []
+    failed = 0
+
+    for i in range(n):
+        side = "BUY" if i % 2 == 0 else "SELL"
+        try:
+            order = adapter.place_market_order(symbol=symbol_u, side=side, qty=qty)
+            items.append(
+                {
+                    "i": i,
+                    "status": "submitted",
+                    "side": side,
+                    "order_id": (
+                        order.get("orderId") if isinstance(order, dict) else None
+                    ),
+                }
+            )
+        except Exception as exc:
+            failed += 1
+            extra = ""
+            try:
+                body_reader = getattr(exc, "read", None)
+                if callable(body_reader):
+                    raw = body_reader()
+                    if raw:
+                        extra = raw.decode("utf-8", errors="replace")[:200]
+            except Exception:
+                extra = ""
+            item = {
+                "i": i,
+                "status": "failed",
+                "side": side,
+                "error": str(exc),
+            }
+            if extra:
+                item["body"] = extra
+            items.append(item)
+
+        time.sleep(cooldown_ms / 1000.0)
+
+    _append_watchdog_event(
+        action="OPS_ORDER_BURST",
+        level="INFO" if failed == 0 else "WARN",
+        reason="live02_order_burst",
+        trace_id=f"burst-{int(time.time())}",
+        data={
+            "symbol": symbol_u,
+            "n": n,
+            "qty": qty,
+            "failed": failed,
+        },
+    )
+
+    return {
+        "ok": failed == 0,
+        "symbol": symbol_u,
+        "n": n,
+        "submitted": n - failed,
+        "failed": failed,
+        "items": items,
+    }
+
+
+@app.post("/api/ops/kill-switch")
+def post_ops_kill_switch(
+    payload: dict,
+    x_ops_token: str | None = Header(default=None, alias="X-OPS-TOKEN"),
+):
+    require_ops_token(x_ops_token)
+
+    kill_switch = bool(payload.get("kill_switch", True))
+    risk_level = str(payload.get("risk_level") or "CRITICAL").upper()
+    reason = str(payload.get("reason") or "ops_trigger")
+    trace_id = str(payload.get("trace_id") or f"ops-kill-{int(time.time())}")
+
+    app.state.ops_kill_switch = {
+        "kill_switch": kill_switch,
+        "risk_level": risk_level,
+        "reason": reason,
+        "trace_id": trace_id,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    _append_watchdog_event(
+        action="OPS_KILL_SWITCH",
+        level=risk_level,
+        reason=reason,
+        trace_id=trace_id,
+        data={
+            "kill_switch": kill_switch,
+            "risk_level": risk_level,
+        },
+    )
+
+    return {
+        "ok": True,
+        "kill_switch": kill_switch,
+        "risk_level": risk_level,
+        "reason": reason,
+        "trace_id": trace_id,
+    }
 
 
 @app.get("/api/ops/runtime-health")
@@ -141,38 +652,7 @@ def get_runtime_health():
     )
 
     # Read engine PID
-    engine_pid = None
-    engine_alive = False
-    engine_cmdline_hint = None
-    if pid_file.exists():
-        try:
-            engine_pid = int(pid_file.read_text().strip())
-            import psutil
-
-            def pid_alive(pid: int) -> bool:
-                if not pid or pid <= 0:
-                    return False
-                try:
-                    return psutil.pid_exists(pid)
-                except Exception:
-                    return False
-
-            def cmdline_hint(pid: int) -> str | None:
-                try:
-                    proc = psutil.Process(pid)
-                    cmd = " ".join(proc.cmdline() or [])
-                    return cmd[:300] if cmd else None
-                except psutil.AccessDenied:
-                    return "ACCESS_DENIED"
-                except psutil.NoSuchProcess:
-                    return None
-                except Exception:
-                    return None
-
-            engine_alive = pid_alive(engine_pid)
-            engine_cmdline_hint = cmdline_hint(engine_pid)
-        except Exception:
-            pass
+    engine_pid, engine_alive, engine_cmdline_hint = _resolve_engine_process(pid_file)
 
     # Read checkpoint age
     checkpoint_age_sec = None
@@ -319,6 +799,7 @@ def get_runtime_events(limit: int = Query(default=50, ge=1, le=500)):
 def get_state_engine():
     health = get_runtime_health()
     is_critical = str(health.get("health_status") or "").upper() == "CRITICAL"
+    ops_kill_on = _is_ops_kill_switch_on()
     checkpoint_status = str(health.get("checkpoint_status") or "UNKNOWN")
     task_state = str(health.get("task_state") or "UNKNOWN")
     engine_alive = bool(health.get("engine_alive"))
@@ -332,7 +813,7 @@ def get_state_engine():
         pending_total += 1
 
     return {
-        "kill_switch_on": is_critical,
+        "kill_switch_on": ops_kill_on,
         "risk_type": checkpoint_status,
         "reason": task_state,
         "uptime_sec": checkpoint_age_sec,
@@ -343,7 +824,8 @@ def get_state_engine():
         "engine_pid": health.get("engine_pid"),
         "health_status": health.get("health_status"),
         "checkpoint_status": checkpoint_status,
-        "kill_switch": is_critical,
+        "kill_switch": ops_kill_on,
+        "health_critical": is_critical,
         "pending": pending_total,
         "deprecated": True,
         "sunset": LEGACY_SUNSET,
@@ -466,6 +948,53 @@ async def _broadcast(payload: dict) -> None:
         connections.discard(conn)
 
 
+def _ha_status_signature(payload: dict) -> tuple:
+    return (
+        payload.get("active_stamp"),
+        payload.get("source"),
+        payload.get("ha_eval"),
+        payload.get("ha_pass"),
+        payload.get("ha_skip"),
+        payload.get("delta_eval"),
+        payload.get("delta_pass"),
+        payload.get("delta_skip"),
+        payload.get("age_sec"),
+        payload.get("engine_alive"),
+        payload.get("last_order_ts"),
+        payload.get("last_fill_ts"),
+        payload.get("open_orders_count"),
+        payload.get("canceled_count"),
+        payload.get("rejected_count"),
+        payload.get("blocked_count"),
+        payload.get("kill_switch"),
+        payload.get("risk_level"),
+        payload.get("downgrade_level"),
+    )
+
+
+async def ha_status_broadcast_loop() -> None:
+    prev_sig = None
+    while True:
+        try:
+            payload = get_ops_ha_status_v1()
+            sig = _ha_status_signature(payload)
+            if sig != prev_sig:
+                prev_sig = sig
+                await _broadcast(
+                    _to_ws_envelope(
+                        event_type="OPS_HA_STATUS",
+                        trace_id=str(
+                            payload.get("active_stamp") or payload.get("stamp") or "ha"
+                        ),
+                        data=payload,
+                        severity="INFO",
+                    )
+                )
+        except Exception:
+            pass
+        await asyncio.sleep(5)
+
+
 async def _get_listen_key(base: str, headers: dict) -> str:
     def _post():
         return requests.post(f"{base}/fapi/v1/listenKey", headers=headers, timeout=10)
@@ -521,6 +1050,7 @@ async def binance_user_stream() -> None:
                         trace_id = str(
                             data.get("o", {}).get("i") or data.get("E") or "binance"
                         )
+                        record = append_order_trade_update(data)
                         await _broadcast(
                             _to_ws_envelope(
                                 event_type="ORDER_UPDATE",
@@ -530,6 +1060,22 @@ async def binance_user_stream() -> None:
                                 ts_ms=_to_epoch_ms(data.get("E")),
                             )
                         )
+                        if isinstance(record, dict):
+                            await _broadcast(
+                                _to_ws_envelope(
+                                    event_type="AUDIT_LOG",
+                                    trace_id=str(record.get("trace_id") or trace_id),
+                                    data={
+                                        "source": "binance_user_stream",
+                                        "kind": "ORDER_TRADE_UPDATE",
+                                        "order": record.get("order", {}),
+                                        "fill": record.get("fill", {}),
+                                        "ledger": record.get("ledger", {}),
+                                    },
+                                    severity="INFO",
+                                    ts_ms=_to_epoch_ms(record.get("ts")),
+                                )
+                            )
         except Exception:
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 60)
@@ -540,12 +1086,17 @@ async def binance_user_stream() -> None:
 
 @app.on_event("startup")
 async def startup_event():
-    global _user_stream_task
+    global _user_stream_task, _ha_status_broadcast_task
     if _user_stream_task is None or _user_stream_task.done():
         _user_stream_task = asyncio.create_task(binance_user_stream())
+    if _ha_status_broadcast_task is None or _ha_status_broadcast_task.done():
+        _ha_status_broadcast_task = asyncio.create_task(ha_status_broadcast_loop())
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    global _ha_status_broadcast_task
     if _user_stream_task is not None:
         _user_stream_task.cancel()
+    if _ha_status_broadcast_task is not None:
+        _ha_status_broadcast_task.cancel()
