@@ -24,6 +24,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--k", type=float, default=2.0, help="ATR channel multiplier for S2")
     parser.add_argument("--m", type=float, default=1.5, help="SL ATR multiplier for S2")
     parser.add_argument("--n", type=float, default=3.0, help="TP ATR multiplier for S2")
+    parser.add_argument("--ha_filter", action="store_true", help="Enable Heikin-Ashi entry filter for S2")
+    parser.add_argument("--ha_confirm_n", type=int, default=2, help="HA confirmation bars (default: 2)")
+    parser.add_argument("--ha_lookback", type=int, default=60, help="HA lookback bars (default: 60)")
     parser.add_argument("--start", type=str, default=None, help="ISO8601 UTC start (e.g. 2025-02-24T00:00:00Z)")
     parser.add_argument("--end", type=str, default=None, help="ISO8601 UTC end (e.g. 2026-02-24T00:00:00Z)")
     parser.add_argument("--run_id", default=None)
@@ -55,7 +58,14 @@ def main() -> None:
     if args.strategy == "s1_trend_pullback":
         strategy = S1TrendPullbackStrategy()
     elif args.strategy == "s2_atr_breakout":
-        strategy = S2AtrBreakoutStrategy(k=args.k, m=args.m, n=args.n)
+        strategy = S2AtrBreakoutStrategy(
+            k=args.k,
+            m=args.m,
+            n=args.n,
+            ha_filter_enabled=args.ha_filter,
+            ha_confirm_n=args.ha_confirm_n,
+            ha_lookback=args.ha_lookback,
+        )
     else:
         raise ValueError(f"Unsupported strategy: {args.strategy}")
 
@@ -115,6 +125,9 @@ def main() -> None:
         "k": args.k,
         "m": args.m,
         "n": args.n,
+        "ha_filter": args.ha_filter,
+        "ha_confirm_n": args.ha_confirm_n,
+        "ha_lookback": args.ha_lookback,
         "run_id": run_id,
         "force_refresh": args.force_refresh,
     }

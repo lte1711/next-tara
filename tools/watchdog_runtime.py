@@ -12,6 +12,7 @@ import os
 import sys
 import json
 import time
+import socket
 import subprocess
 import argparse
 from pathlib import Path
@@ -25,12 +26,83 @@ import logging
 
 NEXT_TRADE_DIR = Path("C:\\projects\\NEXT-TRADE")
 VENV_PYTHON = NEXT_TRADE_DIR / "venv" / "Scripts" / "python.exe"
+
+# --- SYS CHILD REAPER (PMX) ---
+# If any system-python watchdog appears, kill it immediately to enforce runtime purity.
+def _reap_system_watchdog_children():
+    try:
+        result = subprocess.run(
+            [
+                "wmic", "process", "where",
+                "Name='python.exe' and CommandLine like '%watchdog_runtime.py%' and CommandLine like '%Python312%'",
+                "get", "ProcessId",
+            ],
+            capture_output=True, text=True
+        )
+        lines = [ln.strip() for ln in (result.stdout or "").splitlines() if ln.strip().isdigit()]
+        for pid in lines:
+            # never kill self
+            if str(pid) == str(os.getpid()):
+                continue
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True, text=True)
+    except Exception:
+        pass
+
+_reap_system_watchdog_children()
+# --- END REAPER ---
+
+# --- MP SPAWN EXECUTABLE ENFORCE (PMX) ---
+# Force Windows spawn to use venv python (prevents sys._base_executable -> system python fan-out)
+import multiprocessing as _mp
+try:
+    _mp.set_executable(str(VENV_PYTHON))
+except Exception:
+    pass
+# --- END MP ENFORCE ---
+
+# --- VENV ENFORCEMENT GUARD (PMX) ---
+# If watchdog is launched with system Python, immediately re-exec using venv python.
+# Prevents mixed-runtime duplicate watchdog/engine/api spawns.
+import os as _os
+from pathlib import Path as _Path
+import sys as _sys
+
+def _ensure_venv_python():
+    try:
+        venv_py = _Path(VENV_PYTHON).resolve()
+        cur_py  = _Path(_sys.executable).resolve()
+    except Exception:
+        return
+
+    # Avoid infinite respawn loop
+    if _os.environ.get("NEXT_TRADE_WD_REEXEC") == "1":
+        return
+
+    if cur_py != venv_py:
+        env2 = _os.environ.copy()
+        env2["NEXT_TRADE_WD_REEXEC"] = "1"
+        try:
+            subprocess.Popen(
+                [str(venv_py), str(_Path(__file__).resolve()), *_sys.argv[1:]],
+                cwd=str(NEXT_TRADE_DIR),
+                env=env2,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            )
+        finally:
+            # Exit immediately to prevent system-python watchdog from doing anything.
+            raise SystemExit(0)
+
+_ensure_venv_python()
+# --- END GUARD ---
 ENGINE_MODULE = "next_trade.runtime"
 CHECKPOINT_FILE = NEXT_TRADE_DIR / "logs" / "runtime" / "checkpoint_log.txt"
 WATCHDOG_LOG = NEXT_TRADE_DIR / "logs" / "runtime" / "watchdog_runtime.log"
 WATCHDOG_EVENTS = NEXT_TRADE_DIR / "evidence" / "phase-s5-watchdog" / "watchdog_events.jsonl"
 RUNTIME_DIR = NEXT_TRADE_DIR / "logs" / "runtime"
 ENGINE_PID_FILE = RUNTIME_DIR / "engine.pid"
+
+# Singleton: port-binding (race-condition-free, auto-released on process exit)
+SINGLETON_PORT = 19876
 
 # Backoff sequence (seconds)
 BACKOFF_DELAYS = [10, 30, 60]
@@ -84,31 +156,35 @@ def write_event(level: str, action: str, details: Dict[str, Any]):
 
 LOCK_PATH = Path(r"C:\projects\NEXT-TRADE\logs\runtime\watchdog.lock")
 
-def acquire_singleton_lock() -> int:
-    """Acquire singleton lock to prevent duplicate watchdog instances.
+def acquire_singleton_lock():
+    """Acquire singleton lock via port binding (race-condition-free).
 
     Returns:
-        File descriptor (>=0) on success, -1 if already locked.
+        Bound socket on success, None if another instance is already running.
+        The socket must be kept open for the lifetime of the watchdog process.
     """
-    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
     try:
-        fd = os.open(str(LOCK_PATH), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.write(fd, str(os.getpid()).encode("utf-8"))
-        os.fsync(fd)
-        logger.info(f"[SINGLETON] Lock acquired: {LOCK_PATH}")
-        return fd
-    except FileExistsError:
-        logger.error(f"[SINGLETON] Already running (lock exists: {LOCK_PATH})")
-        return -1
+        sock.bind(("127.0.0.1", SINGLETON_PORT))
+        # Write PID to lock file for observability (best-effort, not for locking)
+        LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        LOCK_PATH.write_text(str(os.getpid()), encoding="utf-8")
+        logger.info(f"[SINGLETON] Port lock acquired: 127.0.0.1:{SINGLETON_PORT} PID={os.getpid()}")
+        return sock
+    except OSError:
+        sock.close()
+        logger.error(f"[SINGLETON] Port {SINGLETON_PORT} already bound ??another watchdog is running")
+        return None
 
-def release_singleton_lock(fd: int) -> None:
-    """Release singleton lock."""
+def release_singleton_lock(lock_obj) -> None:
+    """Release singleton lock (close socket + remove PID file)."""
     try:
-        if fd >= 0:
-            os.close(fd)
+        if lock_obj is not None:
+            lock_obj.close()
         if LOCK_PATH.exists():
             LOCK_PATH.unlink()
-            logger.info(f"[SINGLETON] Lock released: {LOCK_PATH}")
+        logger.info("[SINGLETON] Port lock released")
     except Exception as e:
         logger.warning(f"[SINGLETON] Lock release error: {e}")
 
@@ -287,6 +363,11 @@ def start_engine() -> Optional[int]:
         # MUST KEEP OPEN: Open files with append mode, keep handles alive
         stdout_f = open(engine_stdout_log, "a", encoding="utf-8", buffering=1)
         stderr_f = open(engine_stderr_log, "a", encoding="utf-8", buffering=1)
+
+        # --- VENV PATH ENFORCE (PMX) ---
+        env["PATH"] = str(VENV_PYTHON.parent) + ";" + env.get("PATH", "")
+        env.pop("PYTHONHOME", None)
+        env.pop("PYTHONPATH", None)
 
         proc = subprocess.Popen(
             [str(VENV_PYTHON), "-m", "next_trade.runtime.live_s2b_engine"],
@@ -539,9 +620,9 @@ if __name__ == "__main__":
 
     setup_logging(WATCHDOG_LOG)
 
-    # Phase 3: Acquire singleton lock FIRST
-    lock_fd = acquire_singleton_lock()
-    if lock_fd < 0:
+    # Acquire singleton lock FIRST (port-binding, race-condition-free)
+    lock_obj = acquire_singleton_lock()
+    if lock_obj is None:
         write_event("ERROR", "EXIT_ALREADY_RUNNING", {"pid": os.getpid()})
         logger.critical("[SINGLETON] Another watchdog instance is already running")
         sys.exit(2)
@@ -551,7 +632,7 @@ if __name__ == "__main__":
         main(
             check_interval=args.check_interval,
             checkpoint_threshold=args.checkpoint_threshold,
-            lock_fd=lock_fd
+            lock_fd=lock_obj
         )
     except KeyboardInterrupt:
         logger.info("Watchdog interrupted by user")
@@ -560,5 +641,7 @@ if __name__ == "__main__":
         logger.exception(f"Watchdog fatal error: {e}")
         write_event("ERROR", "WATCHDOG_FATAL_ERROR", {"error": str(e)})
     finally:
-        release_singleton_lock(lock_fd)
+        release_singleton_lock(lock_obj)
         logger.info("Watchdog shutdown")
+
+

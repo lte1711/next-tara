@@ -50,3 +50,34 @@ TEST_*.py
 TEST_*.ps1
 test_checkpoint.py
 monitor_engine*.ps1
+
+# ==============================
+# NEXT-TRADE PRODUCTION LOCK
+# ==============================
+
+# Node / Next
+node_modules/
+.next/
+.turbo/
+
+# Evidence / Runtime artifacts
+evidence/
+logs/
+*.log
+
+# Archive
+archive_legacy/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local env
+.env.local
+.env.*.local
