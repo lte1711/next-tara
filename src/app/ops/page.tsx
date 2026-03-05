@@ -137,6 +137,8 @@ export default function OpsPage() {
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
   const [copied, setCopied] = useState<null | "stdout" | "stderr">(null);
+  const [account, setAccount] = useState<any>(null);
+  const [trades, setTrades] = useState<any[]>([]);
 
   // WS refs to avoid duplicate connections (StrictMode / HMR safe)
   const wsRef = useRef<WebSocket | null>(null);
@@ -179,6 +181,23 @@ export default function OpsPage() {
 
   useEffect(() => {
     setIsClient(true);
+  }, []);
+
+  useEffect(() => {
+    const loadInvestor = async () => {
+      try {
+        const acc = await fetch("http://127.0.0.1:8100/api/investor/account").then((r) => r.json());
+        const tr = await fetch("http://127.0.0.1:8100/api/investor/trades/BTCUSDT").then((r) => r.json());
+        setAccount(acc);
+        setTrades(Array.isArray(tr) ? tr.slice(0, 10) : []);
+      } catch {
+        // ignore fetch errors
+      }
+    };
+
+    loadInvestor();
+    const interval = setInterval(loadInvestor, 3000);
+    return () => clearInterval(interval);
   }, []);
 
 
@@ -770,6 +789,41 @@ export default function OpsPage() {
               )}
             </div>
           </div>
+        </div>
+
+        <div className="rounded-md bg-slate-900 text-slate-100 p-4 shadow-sm">
+          <h3 className="text-sm font-semibold mb-2">Investor Account (Binance Testnet)</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+            <div>Total Wallet: {account?.totalWalletBalance ?? "-"} USDT</div>
+            <div>Available: {account?.availableBalance ?? "-"} USDT</div>
+            <div>Unrealized PnL: {account?.totalUnrealizedProfit ?? "-"} USDT</div>
+          </div>
+          {trades.length > 0 ? (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-slate-300">
+                    <th className="py-1">Side</th>
+                    <th className="py-1">Qty</th>
+                    <th className="py-1">Price</th>
+                    <th className="py-1">Realized PnL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trades.map((t, i) => (
+                    <tr key={i} className="border-t border-slate-800">
+                      <td className="py-1">{t.side}</td>
+                      <td className="py-1">{t.qty}</td>
+                      <td className="py-1">{t.price}</td>
+                      <td className="py-1">{t.realizedPnl}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="mt-3 text-xs text-slate-400">No recent trades.</div>
+          )}
         </div>
 
         {/* WS Monitor Panel (lightweight observability) */}

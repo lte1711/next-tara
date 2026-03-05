@@ -1,6 +1,14 @@
 const http = require('http');
-const { WebSocketServer } = require('ws');
 const url = require('url');
+
+let WebSocketServer;
+try {
+  ({ WebSocketServer } = require('ws'));
+} catch (e) {
+  console.error('ws module not found, trying npm install...');
+  require('child_process').execSync('npm install ws', { cwd: __dirname, stdio: 'inherit' });
+  ({ WebSocketServer } = require('ws'));
+}
 
 const PORT = 8100;
 
